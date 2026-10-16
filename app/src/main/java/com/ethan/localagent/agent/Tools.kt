@@ -11,7 +11,7 @@ import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import java.io.File
 
-enum class ToolKind { READ, EDIT, COMMAND }
+enum class ToolKind { READ, EDIT, COMMAND, PHONE }
 
 /** A tool the agent can call. Schemas follow the OpenAPI function format LiteRT-LM expects. */
 data class AgentTool(

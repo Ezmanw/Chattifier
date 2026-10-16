@@ -4,6 +4,8 @@ import android.app.Application
 import android.content.Context
 import com.ethan.localagent.adb.AdbActivator
 import com.ethan.localagent.agent.AgentController
+import com.ethan.localagent.agent.CodeSessionRepository
+import com.ethan.localagent.agent.PhoneController
 import com.ethan.localagent.data.ChatRepository
 import com.ethan.localagent.data.ModelRepository
 import com.ethan.localagent.data.Prefs
@@ -16,6 +18,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import okhttp3.OkHttpClient
+import java.io.File
 import java.util.concurrent.TimeUnit
 
 class LocalAgentApp : Application() {
@@ -46,7 +49,9 @@ class AppContainer(val context: Context) {
     val downloads = DownloadManager(context, http, prefs, models, scope)
     val shell = LinuxShell(context, http, scope)
     val adb = AdbActivator(context, scope)
-    val agent = AgentController(context, prefs, engine, shell, scope)
+    val phone by lazy { PhoneController(adb, File(context.filesDir, "shots")) }
+    val codeSessions = CodeSessionRepository(context, scope)
+    val agent = AgentController(context, prefs, engine, shell, phone, codeSessions, scope)
     val speaker by lazy { com.ethan.localagent.util.Speaker(context, http) }
 }
 

@@ -113,6 +113,9 @@ fun CodeSettingsScreen(settings: Settings, onBack: () -> Unit, onOpenActivation:
             SwitchRow("Keep working with the screen off", "Shows a notification while it runs", settings.keepWorking) { v -> update { it.copy(keepWorking = v) } }
             SwitchRow("Notify when it needs me", "Approve commands from the notification", settings.notifyApprovals) { v -> update { it.copy(notifyApprovals = v) } }
 
+            Section("Phone control")
+            SwitchRow("Let the agent drive your phone", "See the screen, tap, type and open apps over the wireless-debugging link", settings.phoneControl) { v -> update { it.copy(phoneControl = v) } }
+
             Section("Environment")
             NavRow(Icons.Rounded.Terminal, "Built-in Linux shell", "Alpine Linux · git, python, node, ripgrep") { }
             NavRow(Icons.Rounded.Adb, "Background access", "Wireless-debugging activation and battery fixes", onOpenActivation)

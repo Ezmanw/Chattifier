@@ -24,12 +24,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.CheckCircle
@@ -39,6 +43,7 @@ import androidx.compose.material.icons.rounded.Error
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.GppMaybe
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Shield
@@ -46,6 +51,7 @@ import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
@@ -60,6 +66,7 @@ import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -87,10 +94,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ethan.localagent.agent.AgentEvent
 import com.ethan.localagent.agent.Approval
+import com.ethan.localagent.agent.CodeSessionSummary
 import com.ethan.localagent.agent.Decision
 import com.ethan.localagent.app
 import com.ethan.localagent.data.Settings
 import com.ethan.localagent.shell.ShellState
+import com.ethan.localagent.ui.components.AttachmentThumb
 import com.ethan.localagent.ui.components.MarkdownText
 import com.ethan.localagent.ui.onboarding.LogBox
 import kotlinx.coroutines.delay
@@ -112,7 +121,9 @@ fun CodeScreen(settings: Settings, onOpenSettings: () -> Unit, onOpenActivation:
     val state by agent.state.collectAsStateWithLifecycle()
     val shell by ctx.app.shell.state.collectAsStateWithLifecycle()
     val shellLog by ctx.app.shell.log.collectAsStateWithLifecycle()
+    val sessions by ctx.app.codeSessions.summaries.collectAsStateWithLifecycle()
     var task by rememberSaveable { mutableStateOf("") }
+    var showSessions by rememberSaveable { mutableStateOf(false) }
     val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         uri?.let { treeUriToPath(it) }?.let { path -> scope.launch { ctx.app.prefs.update { s -> s.copy(codeFolder = path) } } }
     }
@@ -123,6 +134,7 @@ fun CodeScreen(settings: Settings, onOpenSettings: () -> Unit, onOpenActivation:
             TopAppBar(
                 title = { Text("Code") },
                 actions = {
+                    IconButton(onClick = { showSessions = true }) { Icon(Icons.Rounded.History, "Code sessions") }
                     if (!state.running && state.events.isNotEmpty()) IconButton(onClick = agent::clear) { Icon(Icons.Rounded.DeleteSweep, "Clear session") }
                     IconButton(onClick = onOpenSettings) { Icon(Icons.Rounded.Settings, "Code settings") }
                 },
@@ -160,7 +172,7 @@ fun CodeScreen(settings: Settings, onOpenSettings: () -> Unit, onOpenActivation:
             Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = RoundedCornerShape(28.dp), modifier = Modifier.weight(1f).heightIn(min = 56.dp)) {
                     Box(Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
-                        if (task.isEmpty()) Text(if (state.running) "It's working…" else "Tell it what to do", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyLarge)
+                        if (task.isEmpty()) Text(if (state.running) "Add a note…" else "Tell it what to do", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyLarge)
                         BasicTextField(
                             task, { task = it },
                             textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
@@ -169,6 +181,12 @@ fun CodeScreen(settings: Settings, onOpenSettings: () -> Unit, onOpenActivation:
                     }
                 }
                 if (state.running) {
+                    FilledIconButton(
+                        onClick = { agent.sendNote(task.trim()); task = "" },
+                        enabled = task.isNotBlank(),
+                        modifier = Modifier.size(56.dp), shape = RoundedCornerShape(16.dp),
+                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer),
+                    ) { Icon(Icons.AutoMirrored.Rounded.Send, "Send note") }
                     FilledIconButton(onClick = agent::stop, modifier = Modifier.size(56.dp), shape = RoundedCornerShape(16.dp),
                         colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer)) {
                         Icon(Icons.Rounded.Stop, "Stop agent")
@@ -183,6 +201,74 @@ fun CodeScreen(settings: Settings, onOpenSettings: () -> Unit, onOpenActivation:
                 }
             }
         }
+    }
+
+    if (showSessions) {
+        SessionDialog(
+            sessions = sessions,
+            currentId = state.sessionId,
+            onOpen = { id -> agent.openSession(id); showSessions = false },
+            onNew = { agent.newSession(settings.codeFolder); showSessions = false },
+            onDelete = { id -> agent.deleteSession(id) },
+            onRename = { id, title -> agent.renameSession(id, title) },
+            onDismiss = { showSessions = false },
+        )
+    }
+}
+
+@Composable
+private fun SessionDialog(
+    sessions: List<CodeSessionSummary>,
+    currentId: String?,
+    onOpen: (String) -> Unit,
+    onNew: () -> Unit,
+    onDelete: (String) -> Unit,
+    onRename: (String, String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var renaming by remember { mutableStateOf<CodeSessionSummary?>(null) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Code sessions") },
+        text = {
+            Column(Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (sessions.isEmpty()) {
+                    Text("No sessions yet. Send a task to create one.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                sessions.forEach { s ->
+                    Surface(
+                        color = if (s.id == currentId) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth().clickable { onOpen(s.id) },
+                    ) {
+                        Row(Modifier.padding(horizontal = 12.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f).padding(vertical = 8.dp)) {
+                                Text(s.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            IconButton(onClick = { renaming = s }, modifier = Modifier.size(36.dp)) { Icon(Icons.Rounded.Edit, "Rename", Modifier.size(18.dp)) }
+                            IconButton(onClick = { onDelete(s.id) }, modifier = Modifier.size(36.dp)) { Icon(Icons.Rounded.DeleteSweep, "Delete", Modifier.size(18.dp)) }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onNew) { Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)); Text("New session") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Close") }
+        },
+    )
+
+    renaming?.let { s ->
+        var name by remember(s.id) { mutableStateOf(s.title) }
+        AlertDialog(
+            onDismissRequest = { renaming = null },
+            title = { Text("Rename session") },
+            text = { OutlinedTextField(name, { name = it }, singleLine = true, label = { Text("Name") }) },
+            confirmButton = { TextButton(onClick = { onRename(s.id, name); renaming = null }) { Text("Save") } },
+            dismissButton = { TextButton(onClick = { renaming = null }) { Text("Cancel") } },
+        )
     }
 }
 
@@ -307,7 +393,7 @@ private fun EventRow(e: AgentEvent) {
 private fun ToolRow(t: AgentEvent.Tool) {
     var open by remember { mutableStateOf(false) }
     val icon = when (t.name) {
-        "read_file", "list_files" -> Icons.Rounded.Visibility
+        "read_file", "list_files", "take_screenshot" -> Icons.Rounded.Visibility
         "search" -> Icons.Rounded.Search
         "write_file", "edit_file" -> Icons.Rounded.Edit
         else -> Icons.Rounded.Terminal
@@ -326,6 +412,11 @@ private fun ToolRow(t: AgentEvent.Tool) {
                 val (add, del) = d.split(' ').let { it[0] to it.getOrElse(1) { "" } }
                 Text(add, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
                 Text(del, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelMedium)
+            }
+        }
+        if (t.attachments.isNotEmpty()) {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) {
+                items(t.attachments) { AttachmentThumb(it, size = 220) }
             }
         }
         AnimatedVisibility(open || (t.name == "run_command" && t.status != AgentEvent.Tool.Status.Waiting && t.output.isNotEmpty())) {

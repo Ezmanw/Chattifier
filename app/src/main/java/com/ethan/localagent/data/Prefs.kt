@@ -37,6 +37,7 @@ data class Settings(
     val allowedCommands: Set<String> = setOf("git", "ls", "cat", "rg", "grep", "find"),
     val keepWorking: Boolean = true,
     val notifyApprovals: Boolean = true,
+    val phoneControl: Boolean = false,
     val onboardingDone: Boolean = false,
     val codeFolder: String? = null,
     val codeModelId: String? = null,
@@ -66,6 +67,7 @@ class Prefs(private val context: Context) {
         val allowed = stringSetPreferencesKey("allowed_commands")
         val keepWorking = booleanPreferencesKey("keep_working")
         val notifyApprovals = booleanPreferencesKey("notify_approvals")
+        val phoneControl = booleanPreferencesKey("phone_control")
         val onboarding = booleanPreferencesKey("onboarding_done")
         val codeFolder = stringPreferencesKey("code_folder")
         val codeModel = stringPreferencesKey("code_model")
@@ -94,6 +96,7 @@ class Prefs(private val context: Context) {
             allowedCommands = this[K.allowed] ?: d.allowedCommands,
             keepWorking = this[K.keepWorking] ?: d.keepWorking,
             notifyApprovals = this[K.notifyApprovals] ?: d.notifyApprovals,
+            phoneControl = this[K.phoneControl] ?: d.phoneControl,
             onboardingDone = this[K.onboarding] ?: false,
             codeFolder = this[K.codeFolder],
             codeModelId = this[K.codeModel],
@@ -121,6 +124,7 @@ class Prefs(private val context: Context) {
             set(K.allowed, s.allowedCommands)
             set(K.keepWorking, s.keepWorking)
             set(K.notifyApprovals, s.notifyApprovals)
+            set(K.phoneControl, s.phoneControl)
             set(K.onboarding, s.onboardingDone)
             set(K.codeFolder, s.codeFolder)
             set(K.codeModel, s.codeModelId)

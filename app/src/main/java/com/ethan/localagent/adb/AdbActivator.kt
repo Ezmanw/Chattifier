@@ -168,6 +168,17 @@ class AdbActivator(private val context: Context, private val scope: CoroutineSco
         applyFixes(i + 1)
     }
 
+    /** True once we hold a wireless-debugging connection (paired earlier). */
+    suspend fun ensureConnected(): Boolean = tryConnect(5_000)
+
+    /** Runs a shell command with ADB (shell-user) rights. Returns success and combined output. */
+    @Synchronized
+    fun runShell(command: String): Pair<Boolean, String> = shell(command)
+
+    /** A PNG screenshot of the main display, taken through ADB. */
+    @Synchronized
+    fun screenshot(): ByteArray = manager.openStream("exec:screencap -p").use { it.openInputStream().readBytes() }
+
     private fun shell(command: String): Pair<Boolean, String> {
         manager.openStream("shell:$command; echo __EXIT=\$?").use { stream ->
             val text = stream.openInputStream().bufferedReader().readText()
