@@ -109,7 +109,7 @@ fun VoiceScreen(onBack: () -> Unit, vm: VoiceViewModel = viewModel()) {
                 title = {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Voice", style = MaterialTheme.typography.titleMedium)
-                        Text("$modelName · $voiceLabel", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(if (ui.ownVoice) modelName else "$modelName · $voiceLabel", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 },
                 actions = {

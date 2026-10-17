@@ -59,7 +59,8 @@ class SpeechModel private constructor(
             systemPrompt = "Respond with interleaved text and audio. $systemPrompt".trim(),
             history = emptyList(), tools = emptyList(), temperature = temperature,
             acceptsImages = false, acceptsAudio = true,
-            extra = { first -> mapOf("reset_context" to JsonPrimitive(first), "max_tokens" to JsonPrimitive(512)) },
+            // Cap length so spoken replies stay short and conversational instead of rambling.
+            extra = { first -> mapOf("reset_context" to JsonPrimitive(first), "max_tokens" to JsonPrimitive(200)) },
             incremental = true,
         )
 

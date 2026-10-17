@@ -248,7 +248,8 @@ class VoiceViewModel(app: Application) : AndroidViewModel(app) {
 
     companion object {
         private const val VOICE_PROMPT =
-            "You are talking out loud with the user through their phone's speaker. Answer in one to three short, " +
-                "natural sentences. No lists, no markdown, no emoji. Ask a short follow-up question when it helps."
+            "You are talking out loud with the user through their phone's speaker. Keep every reply to one or two " +
+                "short spoken sentences — never a paragraph. Be casual and direct, get to the point first, and stop. " +
+                "No lists, no markdown, no emoji."
     }
 }
