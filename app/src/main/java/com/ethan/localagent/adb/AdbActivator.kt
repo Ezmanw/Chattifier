@@ -131,32 +131,35 @@ class AdbActivator(private val context: Context, private val scope: CoroutineSco
         }
     }
 
-    private suspend fun tryConnect(timeoutMs: Long): Boolean = withContext(Dispatchers.IO) {
-        if (isAlive()) return@withContext true
-        // isConnected can stay true after the socket has actually dropped; force a clean reconnect.
+    /**
+     * The single guarded entry point for the connection. Everything that touches the ADB link —
+     * tool calls and the keepalive — goes through methods locked on `this`, so the keepalive can
+     * never close a connection a tool call is mid-stream on (that caused the on/off flapping).
+     */
+    @Synchronized
+    private fun ensureAlive(timeoutMs: Long = 6_000): Boolean {
+        if (manager.isConnected && probe()) return true
         runCatching { manager.close() }
-        runCatching { manager.connectTls(context, timeoutMs) }.onFailure { log("connect: ${it.message}") }.getOrDefault(false).also {
-            if (it) log("Connected to wireless debugging")
-        }
+        return runCatching { manager.connectTls(context, timeoutMs) }
+            .onFailure { log("connect: ${it.message}") }
+            .getOrDefault(false)
+            .also { if (it) log("Connected to wireless debugging") }
     }
 
-    /** Actually verify the link, not just the isConnected flag, with a trivial command. */
-    private fun isAlive(): Boolean = synchronized(this) {
-        if (!manager.isConnected) return false
+    /** Raw liveness check: a trivial command over the current connection. */
+    private fun probe(): Boolean =
         runCatching { manager.openStream("shell:true").use { it.openInputStream().read() }; true }.getOrDefault(false)
-    }
+
+    private suspend fun tryConnect(timeoutMs: Long): Boolean = withContext(Dispatchers.IO) { ensureAlive(timeoutMs) }
 
     private var keepAlive: Job? = null
 
     /** Hold the wireless-debugging link open while phone control is in use, so a tool call never
-     *  has to cold-connect mid-action. Pings every 12s and silently reconnects if it drops. */
+     *  has to cold-connect mid-action. Verifies every 12s, under the shared lock. */
     fun keepConnected() {
         if (keepAlive?.isActive == true) return
         keepAlive = scope.launch(Dispatchers.IO) {
-            while (isActive) {
-                if (!isAlive()) runCatching { manager.close(); manager.connectTls(context, 8_000) }
-                delay(12_000)
-            }
+            while (isActive) { ensureAlive(); delay(12_000) }
         }
     }
 
@@ -208,28 +211,15 @@ class AdbActivator(private val context: Context, private val scope: CoroutineSco
      * ROMs ("stream closed"). Reconnects and retries once if the connection has dropped.
      */
     @Synchronized
-    fun screenshot(): ByteArray {
-        var last: Exception? = null
-        repeat(2) { attempt ->
-            try {
-                if (!manager.isConnected) manager.connectTls(context, 5_000)
-                val b64 = manager.openStream("shell:screencap -p | base64").use {
-                    it.openInputStream().bufferedReader().readText()
-                }.replace(Regex("\\s"), "")
-                require(b64.isNotEmpty()) { "screencap returned nothing" }
-                val raw = android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
-                // Foldables (e.g. this razr) print "[Warning] Multiple displays..." to stdout before
-                // the PNG, corrupting it. Trim anything before the PNG signature.
-                val start = indexOfPng(raw)
-                require(start >= 0 && raw.size - start > 100) { "screencap did not produce a PNG" }
-                return if (start == 0) raw else raw.copyOfRange(start, raw.size)
-            } catch (e: Exception) {
-                last = e
-                log("screenshot attempt ${attempt + 1} failed: ${e.message}")
-                runCatching { manager.close() } // force a fresh connection next attempt
-            }
-        }
-        throw IllegalStateException(last?.message ?: "Screenshot failed")
+    fun screenshot(): ByteArray = withStream("shell:screencap -p | base64") { stream ->
+        val b64 = stream.openInputStream().bufferedReader().readText().replace(Regex("\\s"), "")
+        require(b64.isNotEmpty()) { "screencap returned nothing" }
+        val raw = android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
+        // Foldables (e.g. this razr) print "[Warning] Multiple displays..." to stdout before the
+        // PNG, corrupting it. Trim anything before the PNG signature.
+        val start = indexOfPng(raw)
+        require(start >= 0 && raw.size - start > 100) { "screencap did not produce a PNG" }
+        if (start == 0) raw else raw.copyOfRange(start, raw.size)
     }
 
     private fun indexOfPng(b: ByteArray): Int {
@@ -241,14 +231,33 @@ class AdbActivator(private val context: Context, private val scope: CoroutineSco
         return -1
     }
 
-    private fun shell(command: String): Pair<Boolean, String> {
-        manager.openStream("shell:$command; echo __EXIT=\$?").use { stream ->
-            val text = stream.openInputStream().bufferedReader().readText()
-            val code = Regex("__EXIT=(\\d+)").findAll(text).lastOrNull()?.groupValues?.get(1)?.toIntOrNull() ?: 1
-            val clean = text.replace(Regex("__EXIT=\\d+\\s*"), "").trim()
-            val bad = clean.contains("Exception", true) || clean.contains("Permission denial", true) || clean.contains("Unknown", false)
-            return (code == 0 && !bad) to clean
+    private fun shell(command: String): Pair<Boolean, String> = withStream("shell:$command; echo __EXIT=\$?") { stream ->
+        val text = stream.openInputStream().bufferedReader().readText()
+        val code = Regex("__EXIT=(\\d+)").findAll(text).lastOrNull()?.groupValues?.get(1)?.toIntOrNull() ?: 1
+        val clean = text.replace(Regex("__EXIT=\\d+\\s*"), "").trim()
+        val bad = clean.contains("Exception", true) || clean.contains("Permission denial", true) || clean.contains("Unknown", false)
+        (code == 0 && !bad) to clean
+    }
+
+    /**
+     * Opens an ADB stream and runs [body] on it, reconnecting and retrying once if the link has
+     * gone stale ("stream closed"). Every ADB op goes through this so a dropped socket self-heals
+     * instead of failing a tool call.
+     */
+    @Synchronized
+    private fun <T> withStream(service: String, body: (io.github.muntashirakon.adb.AdbStream) -> T): T {
+        var last: Exception? = null
+        repeat(2) { attempt ->
+            try {
+                if (!ensureAlive()) error("not connected to wireless debugging")
+                return manager.openStream(service).use { body(it) }
+            } catch (e: Exception) {
+                last = e
+                log("adb '${service.substringBefore(' ').take(24)}' try ${attempt + 1}: ${e.message}")
+                runCatching { manager.close() }
+            }
         }
+        throw IllegalStateException(last?.message ?: "ADB stream failed")
     }
 
     fun openWirelessDebugging() {
