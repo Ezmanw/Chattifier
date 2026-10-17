@@ -163,9 +163,11 @@ class Speaker(private val context: Context, private val http: OkHttpClient) {
             try {
                 val engine = kokoro ?: loadKokoro() ?: continue
                 val sid = KOKORO_VOICES.indexOfFirst { it.id == voiceId }.let { if (it < 0) 0 else KOKORO_IDS[it] }
-                engine.generateWithCallback(text, sid, rate) { samples ->
-                    if (gen != generation) 0 else { player.write(samples.copyOf()); 1 }
-                }
+                // generate() (not generateWithCallback) avoids a JNI callback-signature mismatch in
+                // sherpa-onnx that aborts the process. Kokoro sentences are short, so a per-sentence
+                // wait is fine — the worker still streams sentence by sentence from the queue.
+                val audio = engine.generate(text, sid, rate)
+                if (gen == generation) player.write(audio.samples)
             } catch (t: Throwable) {
                 Log.w(TAG, "kokoro failed", t)
             } finally {
