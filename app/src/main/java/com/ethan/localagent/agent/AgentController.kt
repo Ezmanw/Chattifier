@@ -360,7 +360,8 @@ class AgentController(
     }
 
     private fun parseTextToolCall(text: String): ToolCallRequest? {
-        val block = Regex("```tool\\s*(\\{.*?})\\s*```", RegexOption.DOT_MATCHES_ALL).find(text)?.groupValues?.get(1) ?: return null
+        // Note: the closing brace must be escaped — Android's regex engine rejects a bare '}'.
+        val block = Regex("```tool\\s*(\\{.*?\\})\\s*```", RegexOption.DOT_MATCHES_ALL).find(text)?.groupValues?.get(1) ?: return null
         return runCatching {
             val o = agentJson.parseToJsonElement(block).jsonObject
             val name = o["name"]!!.jsonPrimitive.content
