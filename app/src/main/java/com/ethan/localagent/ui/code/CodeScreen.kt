@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -36,6 +37,7 @@ import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Block
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.Edit
@@ -44,6 +46,7 @@ import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.GppMaybe
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Shield
@@ -57,6 +60,8 @@ import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -124,6 +129,11 @@ fun CodeScreen(settings: Settings, onOpenSettings: () -> Unit, onOpenActivation:
     val sessions by ctx.app.codeSessions.summaries.collectAsStateWithLifecycle()
     var task by rememberSaveable { mutableStateOf("") }
     var showSessions by rememberSaveable { mutableStateOf(false) }
+    var showModels by remember { mutableStateOf(false) }
+    val models by ctx.app.models.models.collectAsStateWithLifecycle()
+    // The agent needs text + tool calling, so speech-to-speech models aren't offered here.
+    val codeModels = models.filterNot { it.speaksForItself }
+    val codeModel = codeModels.firstOrNull { it.id == settings.codeModelId } ?: codeModels.firstOrNull { it.id == settings.activeModelId } ?: codeModels.firstOrNull()
     val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         uri?.let { treeUriToPath(it) }?.let { path -> scope.launch { ctx.app.prefs.update { s -> s.copy(codeFolder = path) } } }
     }
@@ -134,6 +144,27 @@ fun CodeScreen(settings: Settings, onOpenSettings: () -> Unit, onOpenActivation:
             TopAppBar(
                 title = { Text("Code") },
                 actions = {
+                    Box {
+                        TextButton(onClick = { showModels = true }, enabled = !state.running) {
+                            Icon(Icons.Rounded.Memory, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(codeModel?.name?.take(16) ?: "Model", maxLines = 1)
+                        }
+                        DropdownMenu(expanded = showModels, onDismissRequest = { showModels = false }, shape = RoundedCornerShape(16.dp)) {
+                            Text("CODE MODEL", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                            if (codeModels.isEmpty()) DropdownMenuItem(text = { Text("No text model installed") }, onClick = {}, enabled = false)
+                            codeModels.forEach { m ->
+                                DropdownMenuItem(
+                                    text = { Text(m.name) },
+                                    leadingIcon = { if (m.id == codeModel?.id) Icon(Icons.Rounded.Check, null) else Box(Modifier.size(24.dp)) },
+                                    onClick = {
+                                        showModels = false
+                                        scope.launch { ctx.app.prefs.update { it.copy(codeModelId = m.id) } }
+                                    },
+                                )
+                            }
+                        }
+                    }
                     IconButton(onClick = { showSessions = true }) { Icon(Icons.Rounded.History, "Code sessions") }
                     if (!state.running && state.events.isNotEmpty()) IconButton(onClick = agent::clear) { Icon(Icons.Rounded.DeleteSweep, "Clear session") }
                     IconButton(onClick = onOpenSettings) { Icon(Icons.Rounded.Settings, "Code settings") }

@@ -118,9 +118,9 @@ fun VoiceScreen(onBack: () -> Unit, vm: VoiceViewModel = viewModel()) {
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, shape = RoundedCornerShape(16.dp)) {
                             Text("VOICE", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
                             if (ui.ownVoice) {
-                                DropdownMenuItem(text = { Text("This model speaks in its own voice") }, onClick = {}, enabled = false)
+                                DropdownMenuItem(text = { Text("This model speaks in its own voice — no voice to pick") }, onClick = {}, enabled = false)
                             }
-                            when (val p = pack) {
+                            if (!ui.ownVoice) when (val p = pack) {
                                 com.ethan.localagent.util.VoicePackState.Missing, is com.ethan.localagent.util.VoicePackState.Failed -> DropdownMenuItem(
                                     text = { Column { Text("Get natural voices"); Text(if (p is com.ethan.localagent.util.VoicePackState.Failed) p.message else "Kokoro · 11 voices · 130 MB", style = MaterialTheme.typography.labelSmall) } },
                                     leadingIcon = { Icon(Icons.Rounded.Download, null) },
@@ -133,26 +133,28 @@ fun VoiceScreen(onBack: () -> Unit, vm: VoiceViewModel = viewModel()) {
                                 )
                                 else -> {}
                             }
-                            if (voices.isEmpty()) DropdownMenuItem(text = { Text("System default") }, onClick = {}, enabled = false)
-                            voices.forEach { v ->
-                                val selected = v.id == settings?.voiceName || (settings?.voiceName == null && v == voices.first())
-                                DropdownMenuItem(
-                                    text = { Text(v.label) },
-                                    trailingIcon = { Text(v.hint, style = MaterialTheme.typography.labelSmall) },
-                                    leadingIcon = { if (selected) Icon(Icons.Rounded.Check, null) else Box(Modifier.size(24.dp)) },
-                                    onClick = { vm.setVoice(v.id) },
-                                )
+                            if (!ui.ownVoice) {
+                                if (voices.isEmpty()) DropdownMenuItem(text = { Text("System default") }, onClick = {}, enabled = false)
+                                voices.forEach { v ->
+                                    val selected = v.id == settings?.voiceName || (settings?.voiceName == null && v == voices.first())
+                                    DropdownMenuItem(
+                                        text = { Text(v.label) },
+                                        trailingIcon = { Text(v.hint, style = MaterialTheme.typography.labelSmall) },
+                                        leadingIcon = { if (selected) Icon(Icons.Rounded.Check, null) else Box(Modifier.size(24.dp)) },
+                                        onClick = { vm.setVoice(v.id) },
+                                    )
+                                }
+                                HorizontalDivider()
+                                Text("SPEED", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                                listOf(0.8f, 1.0f, 1.2f, 1.5f).forEach { r ->
+                                    DropdownMenuItem(
+                                        text = { Text("%.1f×".format(r)) },
+                                        leadingIcon = { if (settings?.speechRate == r) Icon(Icons.Rounded.Check, null) else Box(Modifier.size(24.dp)) },
+                                        onClick = { vm.setRate(r) },
+                                    )
+                                }
+                                HorizontalDivider()
                             }
-                            HorizontalDivider()
-                            Text("SPEED", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-                            listOf(0.8f, 1.0f, 1.2f, 1.5f).forEach { r ->
-                                DropdownMenuItem(
-                                    text = { Text("%.1f×".format(r)) },
-                                    leadingIcon = { if (settings?.speechRate == r) Icon(Icons.Rounded.Check, null) else Box(Modifier.size(24.dp)) },
-                                    onClick = { vm.setRate(r) },
-                                )
-                            }
-                            HorizontalDivider()
                             DropdownMenuItem(
                                 text = { Text("Talk over to interrupt") },
                                 trailingIcon = { Switch(checked = settings?.talkOver ?: true, onCheckedChange = null) },

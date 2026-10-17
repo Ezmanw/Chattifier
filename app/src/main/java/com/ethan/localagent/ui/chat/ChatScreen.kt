@@ -57,6 +57,7 @@ import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -409,6 +410,26 @@ private fun Composer(
                     .putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true),
             )
         }
+    }
+
+    // Speech-to-speech models have no text channel to chat with — send people to Voice mode.
+    if (model?.speaksForItself == true) {
+        Surface(tonalElevation = 2.dp, modifier = Modifier.fillMaxWidth()) {
+            Row(
+                Modifier.fillMaxWidth().padding(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Rounded.GraphicEq, null, tint = MaterialTheme.colorScheme.primary)
+                Text(
+                    "${model.name} is a voice model — talk to it in Voice mode.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                FilledTonalButton(onClick = onVoice) { Text("Open Voice") }
+            }
+        }
+        return
     }
 
     Column(Modifier.fillMaxWidth()) {

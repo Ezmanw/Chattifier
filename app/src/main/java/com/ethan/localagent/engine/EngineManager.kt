@@ -113,8 +113,9 @@ class EngineManager(
         history: List<ChatMessage>,
         tools: List<ToolSpec> = emptyList(),
         forceNew: Boolean = false,
+        modelId: String? = null,
     ): Session = mutex.withLock {
-        val ready = ensureLoadedLocked(null)
+        val ready = ensureLoadedLocked(modelId?.let { models.byId(it) })
         val existing = session
         if (!forceNew && existing != null && sessionOwner === owner && existing.alive) return@withLock existing
         existing?.runCatching { close() }

@@ -68,8 +68,13 @@ class NativeServer(
             .start()
         process = p
         Thread {
-            p.inputStream.bufferedReader().useLines { lines ->
-                lines.forEach { l -> synchronized(log) { log.addLast(l); while (log.size > 80) log.removeFirst() } }
+            // close() destroys the process, which interrupts this blocking read; swallow it so
+            // the uncaught exception never reaches the app's default handler and crashes us.
+            try {
+                p.inputStream.bufferedReader().useLines { lines ->
+                    lines.forEach { l -> synchronized(log) { log.addLast(l); while (log.size > 80) log.removeFirst() } }
+                }
+            } catch (_: Throwable) {
             }
         }.apply { isDaemon = true }.start()
 
@@ -77,8 +82,11 @@ class NativeServer(
         while (System.currentTimeMillis() < deadline) {
             currentCoroutineContext().ensureActive()
             if (!p.isAlive) error("$label stopped: ${tail()}")
+            // The server is ready once its HTTP layer answers at all. llama-server returns 503
+            // while the model is still loading; the Liquid runner has no /health and 404s, which
+            // still means the socket is up and the model is loaded (it binds only after loading).
             val ok = runCatching {
-                http.newCall(Request.Builder().url("$baseUrl/health").build()).execute().use { it.isSuccessful }
+                http.newCall(Request.Builder().url("$baseUrl/health").build()).execute().use { it.code != 503 }
             }.getOrDefault(false)
             if (ok) return
             delay(250)

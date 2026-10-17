@@ -220,7 +220,9 @@ class AgentController(
         val phoneOn = prefs.current().phoneControl
         val system = systemPrompt(root, phoneOn)
         val specs = (AGENT_TOOLS + if (phoneOn) PHONE_TOOLS else emptyList()).map { ToolSpec(it.name, it.schema) }
-        suspend fun session(force: Boolean): Session = engine.sessionFor(this, system, transcript.toList(), specs, forceNew = force)
+        // Code mode can run a different model than chat (e.g. a strong tool-calling GGUF).
+        val codeModel = prefs.current().codeModelId
+        suspend fun session(force: Boolean): Session = engine.sessionFor(this, system, transcript.toList(), specs, forceNew = force, modelId = codeModel)
         var current = session(!engine.owns(this))
         transcript += ChatMessage(role = Role.USER, text = task)
         var next: Turn = Turn.User(task)

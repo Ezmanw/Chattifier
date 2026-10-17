@@ -148,7 +148,11 @@ class ModelsViewModel(app: Application) : AndroidViewModel(app) {
         if (c.engine.current?.id == m.id) c.engine.unload()
         c.models.remove(m.id)
     }
-    fun use(m: ModelEntry) = viewModelScope.launch { c.prefs.update { it.copy(activeModelId = m.id) } }
+    fun use(m: ModelEntry) = viewModelScope.launch {
+        c.prefs.update { it.copy(activeModelId = m.id) }
+        // Load it right away, rather than lazily on the first message.
+        runCatching { c.engine.ensureLoaded(m) }
+    }
 
     fun import(uri: Uri) = viewModelScope.launch {
         _search.update { it.copy(importing = true) }
