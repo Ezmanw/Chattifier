@@ -122,7 +122,7 @@ fun VoiceScreen(onBack: () -> Unit, vm: VoiceViewModel = viewModel()) {
                             }
                             if (!ui.ownVoice) when (val p = pack) {
                                 com.ethan.localagent.util.VoicePackState.Missing, is com.ethan.localagent.util.VoicePackState.Failed -> DropdownMenuItem(
-                                    text = { Column { Text("Get natural voices"); Text(if (p is com.ethan.localagent.util.VoicePackState.Failed) p.message else "Kokoro · 11 voices · 130 MB", style = MaterialTheme.typography.labelSmall) } },
+                                    text = { Column { Text("Get natural voices"); Text(if (p is com.ethan.localagent.util.VoicePackState.Failed) p.message else "Kokoro · 11 voices · 350 MB", style = MaterialTheme.typography.labelSmall) } },
                                     leadingIcon = { Icon(Icons.Rounded.Download, null) },
                                     onClick = vm::downloadVoices,
                                 )

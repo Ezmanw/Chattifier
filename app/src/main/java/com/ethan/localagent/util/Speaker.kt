@@ -51,7 +51,7 @@ class Speaker(private val context: Context, private val http: OkHttpClient) {
     private val packDir = File(context.filesDir, "kokoro")
     private val modelDir = File(packDir, KOKORO_DIR)
 
-    private val _pack = MutableStateFlow<VoicePackState>(if (File(modelDir, "model.int8.onnx").exists()) VoicePackState.Ready else VoicePackState.Missing)
+    private val _pack = MutableStateFlow<VoicePackState>(if (File(modelDir, "model.onnx").exists()) VoicePackState.Ready else VoicePackState.Missing)
     val pack: StateFlow<VoicePackState> = _pack
 
     // --- system TTS ---
@@ -185,7 +185,7 @@ class Speaker(private val context: Context, private val http: OkHttpClient) {
             config = OfflineTtsConfig(
                 model = OfflineTtsModelConfig(
                     kokoro = OfflineTtsKokoroModelConfig(
-                        model = "$d/model.int8.onnx",
+                        model = "$d/model.onnx",
                         voices = "$d/voices.bin",
                         tokens = "$d/tokens.txt",
                         dataDir = "$d/espeak-ng-data",
@@ -198,12 +198,14 @@ class Speaker(private val context: Context, private val http: OkHttpClient) {
         ).also { kokoro = it }
     }.onFailure { Log.w(TAG, "couldn't load Kokoro", it) }.getOrNull()
 
-    /** Downloads and unpacks the Kokoro voice pack (~130 MB). */
+    /** Downloads and unpacks the Kokoro voice pack (~350 MB). */
     fun downloadPack() {
         if (_pack.value is VoicePackState.Downloading || _pack.value == VoicePackState.Ready) return
         scope.launch(Dispatchers.IO) {
             try {
                 packDir.mkdirs()
+                // Remove any older/other voice pack (e.g. the earlier int8 build) to reclaim space.
+                packDir.listFiles()?.forEach { if (it.isDirectory && it.name != KOKORO_DIR) it.deleteRecursively() }
                 val archive = File(packDir, "pack.tar.bz2")
                 _pack.value = VoicePackState.Downloading(0f)
                 http.newCall(Request.Builder().url(KOKORO_URL).build()).execute().use { r ->
@@ -242,9 +244,9 @@ class Speaker(private val context: Context, private val http: OkHttpClient) {
 
     companion object {
         private const val TAG = "Speaker"
-        private const val KOKORO_DIR = "kokoro-int8-multi-lang-v1_0"
+        private const val KOKORO_DIR = "kokoro-multi-lang-v1_0"
         private const val KOKORO_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/$KOKORO_DIR.tar.bz2"
-        const val KOKORO_PACK_BYTES = 132_303_094L
+        const val KOKORO_PACK_BYTES = 349_906_910L
 
         /** Speaker order inside voices.bin (from the model's speaker_names metadata). */
         private val ALL = "af_alloy,af_aoede,af_bella,af_heart,af_jessica,af_kore,af_nicole,af_nova,af_river,af_sarah,af_sky,am_adam,am_echo,am_eric,am_fenrir,am_liam,am_michael,am_onyx,am_puck,am_santa,bf_alice,bf_emma,bf_isabella,bf_lily,bm_daniel,bm_fable,bm_george,bm_lewis".split(',')
