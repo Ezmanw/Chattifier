@@ -131,6 +131,11 @@ fun VoiceScreen(onBack: () -> Unit, vm: VoiceViewModel = viewModel()) {
                                     leadingIcon = { androidx.compose.material3.CircularWavyProgressIndicator(progress = { p.progress }, modifier = Modifier.size(24.dp)) },
                                     onClick = {}, enabled = false,
                                 )
+                                is com.ethan.localagent.util.VoicePackState.Unpacking -> DropdownMenuItem(
+                                    text = { Text("Unpacking voices… ${(p.progress * 100).toInt()}%") },
+                                    leadingIcon = { androidx.compose.material3.CircularWavyProgressIndicator(progress = { p.progress }, modifier = Modifier.size(24.dp)) },
+                                    onClick = {}, enabled = false,
+                                )
                                 else -> {}
                             }
                             if (!ui.ownVoice) {

@@ -37,6 +37,7 @@ data class VoiceOption(val id: String, val label: String, val hint: String)
 sealed interface VoicePackState {
     data object Missing : VoicePackState
     data class Downloading(val progress: Float) : VoicePackState
+    data class Unpacking(val progress: Float) : VoicePackState
     data object Ready : VoicePackState
     data class Failed(val message: String) : VoicePackState
 }
@@ -200,7 +201,7 @@ class Speaker(private val context: Context, private val http: OkHttpClient) {
 
     /** Downloads and unpacks the Kokoro voice pack (~350 MB). */
     fun downloadPack() {
-        if (_pack.value is VoicePackState.Downloading || _pack.value == VoicePackState.Ready) return
+        if (_pack.value is VoicePackState.Downloading || _pack.value is VoicePackState.Unpacking || _pack.value == VoicePackState.Ready) return
         scope.launch(Dispatchers.IO) {
             try {
                 packDir.mkdirs()
@@ -224,8 +225,22 @@ class Speaker(private val context: Context, private val http: OkHttpClient) {
                         }
                     }
                 }
-                _pack.value = VoicePackState.Downloading(0.9f)
-                TarArchiveInputStream(BZip2CompressorInputStream(archive.inputStream().buffered(1 shl 16))).use { tar ->
+                // Unpacking is slow (bzip2 of a few hundred MB). Track how much of the archive
+                // we've consumed so the progress bar keeps moving instead of looking frozen at 90%.
+                _pack.value = VoicePackState.Unpacking(0f)
+                val archiveSize = archive.length().coerceAtLeast(1)
+                var readSoFar = 0L
+                val counting = object : java.io.FilterInputStream(archive.inputStream().buffered(1 shl 16)) {
+                    override fun read(b: ByteArray, off: Int, len: Int): Int {
+                        val n = super.read(b, off, len)
+                        if (n > 0) {
+                            readSoFar += n
+                            _pack.value = VoicePackState.Unpacking((readSoFar.toFloat() / archiveSize).coerceIn(0f, 1f))
+                        }
+                        return n
+                    }
+                }
+                TarArchiveInputStream(BZip2CompressorInputStream(counting)).use { tar ->
                     while (true) {
                         val e = tar.nextEntry ?: break
                         if (e.name.split('/').any { it == ".." }) continue
