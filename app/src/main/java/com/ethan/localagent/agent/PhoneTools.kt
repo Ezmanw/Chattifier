@@ -64,10 +64,44 @@ class PhoneController(private val adb: AdbActivator, private val captureDir: Fil
 
     private fun input(cmd: String) = adb.runShell("input $cmd")
 
-    private fun openApp(pkg: String): ToolOutcome {
-        if (pkg.isBlank()) return ToolOutcome("Give the app's package name, e.g. com.google.android.apps.docs", ok = false)
+    private fun openApp(query: String): ToolOutcome {
+        if (query.isBlank()) return ToolOutcome("Give the app name or package, e.g. \"youtube\" or com.google.android.youtube", ok = false)
+        val pkg = resolvePackage(query) ?: return ToolOutcome(
+            "No installed app matches \"$query\". Use adb_shell with `pm list packages` to see what's installed.", ok = false,
+        )
+        // cmd monkey launches the package's launcher activity by the exact package name.
         val (ok, out) = adb.runShell("monkey -p ${shellArg(pkg)} -c android.intent.category.LAUNCHER 1")
-        return ToolOutcome(if (ok) "Opened $pkg" else "Couldn't open $pkg: $out", ok = ok)
+        return if (ok) ToolOutcome("Opened $pkg", ok = true)
+        else ToolOutcome("Couldn't open $pkg: ${out.lineSequence().lastOrNull { it.isNotBlank() }}", ok = false)
+    }
+
+    /** Accepts an exact package or a fuzzy name and returns a real installed package. */
+    private fun resolvePackage(query: String): String? {
+        val q = query.trim().lowercase()
+        val (_, listOut) = adb.runShell("pm list packages")
+        val installed = listOut.lineSequence().mapNotNull { it.substringAfter("package:", "").trim().takeIf { p -> p.isNotEmpty() } }.toList()
+        // 1) exact match. 2) a known alias. 3) the shortest package whose name contains the query word.
+        installed.firstOrNull { it.equals(q, true) }?.let { return it }
+        APP_ALIASES[q]?.let { alias -> installed.firstOrNull { it.equals(alias, true) }?.let { return it } }
+        val word = q.substringAfterLast('.')
+        return installed.filter { it.contains(word, true) }.minByOrNull { it.length }
+    }
+
+    private companion object {
+        val APP_ALIASES = mapOf(
+            "youtube" to "com.google.android.youtube",
+            "com.android.youtube" to "com.google.android.youtube",
+            "chrome" to "com.android.chrome",
+            "maps" to "com.google.android.apps.maps",
+            "gmail" to "com.google.android.gm",
+            "docs" to "com.google.android.apps.docs",
+            "photos" to "com.google.android.apps.photos",
+            "settings" to "com.android.settings",
+            "camera" to "com.android.camera2",
+            "calculator" to "com.google.android.calculator",
+            "whatsapp" to "com.whatsapp",
+            "spotify" to "com.spotify.music",
+        )
     }
 
     private suspend fun settle() = delay(600)
@@ -93,6 +127,6 @@ val PHONE_TOOLS = listOf(
     AgentTool("screen_swipe", "Swipe/scroll from x1,y1 to x2,y2 over ms milliseconds.", ToolKind.PHONE, listOf(AgentTool.Param("x1", "integer", ""), AgentTool.Param("y1", "integer", ""), AgentTool.Param("x2", "integer", ""), AgentTool.Param("y2", "integer", ""), AgentTool.Param("ms", "integer", "duration", required = false))),
     AgentTool("screen_type", "Type text into the focused field. Tap the field first.", ToolKind.PHONE, listOf(AgentTool.Param("text", "string", "text to type"))),
     AgentTool("screen_key", "Press a key: back, home, enter, tab, delete, recents, up, down, left, right, space, search.", ToolKind.PHONE, listOf(AgentTool.Param("key", "string", "key name"))),
-    AgentTool("open_app", "Launch an app by package name (e.g. com.google.android.apps.docs).", ToolKind.PHONE, listOf(AgentTool.Param("package", "string", "package name"))),
+    AgentTool("open_app", "Launch an app by name or package. You can pass a plain name like \"youtube\" or \"settings\" and it resolves the installed package; an exact package like com.google.android.youtube also works.", ToolKind.PHONE, listOf(AgentTool.Param("package", "string", "app name or package"))),
     AgentTool("adb_shell", "Run an Android shell command with ADB (shell-user) rights: dumpsys, pm, settings, am, screencap, etc. Not a Linux shell — use run_command for the project's Linux tools.", ToolKind.COMMAND, listOf(AgentTool.Param("command", "string", "the shell command"))),
 )
