@@ -100,7 +100,9 @@ class Recorder(private val scope: CoroutineScope) {
                     } else {
                         utterance.write(chunk)
                         silentMs = if (loud) 0 else silentMs + 20
-                        if (silentMs >= 900 || utterance.size() > Media.SAMPLE_RATE * 2 * 30) {
+                        // Wait out natural mid-sentence pauses before ending the turn, so it doesn't
+                        // cut in before you've finished speaking.
+                        if (silentMs >= 1500 || utterance.size() > Media.SAMPLE_RATE * 2 * 30) {
                             speaking = false; inSpeech = false; voicedMs = 0
                             if (utterance.size() > Media.SAMPLE_RATE * 2 * 4 / 10) _utterances.tryEmit(utterance.toByteArray())
                             utterance.reset()
