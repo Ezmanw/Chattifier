@@ -74,7 +74,13 @@ class Recorder(private val scope: CoroutineScope) {
                     _level.value = (_level.value * 0.6f + (rms / 4000.0).coerceIn(0.0, 1.0).toFloat() * 0.4f)
                     val chunk = bytes.copyOf(n * 2)
                     manual?.write(chunk)
-                    if (!vadEnabled) continue
+                    if (!vadEnabled) {
+                        // Gated (e.g. while the model is speaking): keep the mic open for the echo
+                        // canceller but drop any in-progress utterance so we don't capture playback.
+                        if (speaking) { speaking = false; inSpeech = false; utterance.reset() }
+                        voicedMs = 0; silentMs = 0; preRoll.clear()
+                        continue
+                    }
                     if (finishRequested) {
                         finishRequested = false
                         if (speaking && utterance.size() > Media.SAMPLE_RATE * 2 / 4) _utterances.tryEmit(utterance.toByteArray())

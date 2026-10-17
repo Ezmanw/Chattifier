@@ -159,7 +159,7 @@ class VoiceViewModel(app: Application) : AndroidViewModel(app) {
     private fun listen() {
         _ui.update { it.copy(phase = VoicePhase.Listening, heard = "") }
         if (_ui.value.muted) return
-        if (_ui.value.usesAudioModel) recorder.start() else startRecognizer()
+        if (_ui.value.usesAudioModel) { recorder.vadEnabled = true; recorder.start() } else startRecognizer()
     }
 
     private fun startRecognizer() {
@@ -206,7 +206,13 @@ class VoiceViewModel(app: Application) : AndroidViewModel(app) {
     private fun respond(user: ChatMessage) {
         job?.cancel()
         turnStartedAt = System.currentTimeMillis()
+        // Set the phase first so the player-stopped observer below doesn't mistake this for the end
+        // of a reply and restart listening.
         _ui.update { it.copy(phase = VoicePhase.Thinking, reply = "") }
+        // Gate the mic (keep it open, but drop input) and clear any leftover audio while we think
+        // and speak, so the model's own voice from the speaker isn't fed back as a new turn.
+        // Gating rather than stopping avoids churning the AudioRecord, which fails to re-init.
+        recorder.vadEnabled = false; recognizer?.cancel(); player.stop()
         job = viewModelScope.launch {
             val history = _ui.value.transcript
             val ownVoice = _ui.value.ownVoice
@@ -248,8 +254,8 @@ class VoiceViewModel(app: Application) : AndroidViewModel(app) {
 
     companion object {
         private const val VOICE_PROMPT =
-            "You are talking out loud with the user through their phone's speaker. Keep every reply to one or two " +
-                "short spoken sentences — never a paragraph. Be casual and direct, get to the point first, and stop. " +
+            "You are talking out loud with the user through their phone's speaker. Reply in a natural, conversational " +
+                "way — usually one to three sentences, a little more only when the question really needs it. " +
                 "No lists, no markdown, no emoji."
     }
 }

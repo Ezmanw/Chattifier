@@ -55,12 +55,14 @@ class SpeechModel private constructor(
     override fun open(systemPrompt: String, history: List<ChatMessage>, tools: List<ToolSpec>, temperature: Float): Session =
         OpenAiSession(
             context, http, server,
-            // The runner switches modes on its system prompt; interleaved means "answer with text + speech".
-            systemPrompt = "Respond with interleaved text and audio. $systemPrompt".trim(),
+            // The runner only accepts a fixed set of exact system prompts (it rejects anything else
+            // with "Unsupported system prompt"). This one means "answer with text + speech". The
+            // caller's prompt can't be used, so reply length is controlled by max_tokens instead.
+            systemPrompt = "Respond with interleaved text and audio.",
             history = emptyList(), tools = emptyList(), temperature = temperature,
             acceptsImages = false, acceptsAudio = true,
             // Cap length so spoken replies stay short and conversational instead of rambling.
-            extra = { first -> mapOf("reset_context" to JsonPrimitive(first), "max_tokens" to JsonPrimitive(200)) },
+            extra = { first -> mapOf("reset_context" to JsonPrimitive(first), "max_tokens" to JsonPrimitive(384)) },
             incremental = true,
         )
 
