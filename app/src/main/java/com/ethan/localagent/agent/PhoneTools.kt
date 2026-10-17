@@ -24,6 +24,10 @@ class PhoneController(private val adb: AdbActivator, private val captureDir: Fil
 
     suspend fun connected(): Boolean = withContext(Dispatchers.IO) { runCatching { adb.ensureConnected() }.getOrDefault(false) }
 
+    /** Open and hold the wireless-debugging link for the duration of a phone-control task. */
+    fun startSession() = adb.keepConnected()
+    fun endSession() = adb.releaseConnection()
+
     /** Screenshot saved as an app-private JPEG the model can be shown, downscaled for the vision encoder. */
     suspend fun screenshot(): Shot = withContext(Dispatchers.IO) {
         val png = adb.screenshot()

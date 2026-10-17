@@ -17,6 +17,9 @@ import io.github.muntashirakon.adb.AbsAdbConnectionManager
 import io.github.muntashirakon.adb.android.AdbMdns
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -129,11 +132,35 @@ class AdbActivator(private val context: Context, private val scope: CoroutineSco
     }
 
     private suspend fun tryConnect(timeoutMs: Long): Boolean = withContext(Dispatchers.IO) {
-        if (manager.isConnected) return@withContext true
+        if (isAlive()) return@withContext true
+        // isConnected can stay true after the socket has actually dropped; force a clean reconnect.
+        runCatching { manager.close() }
         runCatching { manager.connectTls(context, timeoutMs) }.onFailure { log("connect: ${it.message}") }.getOrDefault(false).also {
             if (it) log("Connected to wireless debugging")
         }
     }
+
+    /** Actually verify the link, not just the isConnected flag, with a trivial command. */
+    private fun isAlive(): Boolean = synchronized(this) {
+        if (!manager.isConnected) return false
+        runCatching { manager.openStream("shell:true").use { it.openInputStream().read() }; true }.getOrDefault(false)
+    }
+
+    private var keepAlive: Job? = null
+
+    /** Hold the wireless-debugging link open while phone control is in use, so a tool call never
+     *  has to cold-connect mid-action. Pings every 12s and silently reconnects if it drops. */
+    fun keepConnected() {
+        if (keepAlive?.isActive == true) return
+        keepAlive = scope.launch(Dispatchers.IO) {
+            while (isActive) {
+                if (!isAlive()) runCatching { manager.close(); manager.connectTls(context, 8_000) }
+                delay(12_000)
+            }
+        }
+    }
+
+    fun releaseConnection() { keepAlive?.cancel(); keepAlive = null }
 
     /** Runs the fixes from [from]; stops at the first failure so the user can retry or skip it. */
     fun applyFixes(from: Int) {

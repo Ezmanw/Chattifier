@@ -114,6 +114,8 @@ class AgentController(
             if (settings.keepWorking) {
                 context.startForegroundService(Intent(context, AgentService::class.java))
             }
+            // Keep the wireless-debugging link warm for the whole task so phone tools never cold-connect.
+            if (settings.phoneControl) phone.startSession()
             try {
                 loop(task, ToolRunner(root, shell), root)
                 persist()
@@ -126,6 +128,7 @@ class AgentController(
                 note(e.message ?: "Something went wrong", error = true)
                 persist()
             } finally {
+                phone.endSession()
                 pending?.cancel(); pending = null
                 _state.update { it.copy(running = false, approval = null) }
                 AgentNotifications.clearApproval(context)
