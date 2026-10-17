@@ -175,9 +175,44 @@ class AdbActivator(private val context: Context, private val scope: CoroutineSco
     @Synchronized
     fun runShell(command: String): Pair<Boolean, String> = shell(command)
 
-    /** A PNG screenshot of the main display, taken through ADB. */
+    /**
+     * A PNG screenshot of the main display, taken through ADB. Reads the PNG base64-encoded over a
+     * shell stream rather than as raw binary over exec: — binary exec streams close early on some
+     * ROMs ("stream closed"). Reconnects and retries once if the connection has dropped.
+     */
     @Synchronized
-    fun screenshot(): ByteArray = manager.openStream("exec:screencap -p").use { it.openInputStream().readBytes() }
+    fun screenshot(): ByteArray {
+        var last: Exception? = null
+        repeat(2) { attempt ->
+            try {
+                if (!manager.isConnected) manager.connectTls(context, 5_000)
+                val b64 = manager.openStream("shell:screencap -p | base64").use {
+                    it.openInputStream().bufferedReader().readText()
+                }.replace(Regex("\\s"), "")
+                require(b64.isNotEmpty()) { "screencap returned nothing" }
+                val raw = android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
+                // Foldables (e.g. this razr) print "[Warning] Multiple displays..." to stdout before
+                // the PNG, corrupting it. Trim anything before the PNG signature.
+                val start = indexOfPng(raw)
+                require(start >= 0 && raw.size - start > 100) { "screencap did not produce a PNG" }
+                return if (start == 0) raw else raw.copyOfRange(start, raw.size)
+            } catch (e: Exception) {
+                last = e
+                log("screenshot attempt ${attempt + 1} failed: ${e.message}")
+                runCatching { manager.close() } // force a fresh connection next attempt
+            }
+        }
+        throw IllegalStateException(last?.message ?: "Screenshot failed")
+    }
+
+    private fun indexOfPng(b: ByteArray): Int {
+        val sig = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+        outer@ for (i in 0..b.size - sig.size) {
+            for (j in sig.indices) if (b[i + j] != sig[j]) continue@outer
+            return i
+        }
+        return -1
+    }
 
     private fun shell(command: String): Pair<Boolean, String> {
         manager.openStream("shell:$command; echo __EXIT=\$?").use { stream ->
