@@ -210,8 +210,27 @@ class AdbActivator(private val context: Context, private val scope: CoroutineSco
      * shell stream rather than as raw binary over exec: — binary exec streams close early on some
      * ROMs ("stream closed"). Reconnects and retries once if the connection has dropped.
      */
+    /**
+     * A PNG screenshot of the main display. A watchdog bounds the whole thing: the ~0.5 MB transfer
+     * can stall on a marginal wireless link and the stream read has no timeout of its own, so if it
+     * overruns we close the connection (which unblocks the read) and fail instead of hanging forever.
+     */
+    fun screenshot(timeoutMs: Long = 15_000): ByteArray {
+        var result: ByteArray? = null
+        var err: Throwable? = null
+        val worker = Thread { try { result = screenshotSync() } catch (t: Throwable) { err = t } }.apply { isDaemon = true; start() }
+        worker.join(timeoutMs)
+        if (worker.isAlive) {
+            runCatching { manager.close() } // not synchronized, so it unblocks the stalled read
+            worker.join(3_000)
+            throw IllegalStateException("Screenshot timed out — the wireless-debugging link is too slow or unstable.")
+        }
+        err?.let { throw it }
+        return result ?: error("Screenshot produced nothing")
+    }
+
     @Synchronized
-    fun screenshot(): ByteArray = withStream("shell:screencap -p | base64") { stream ->
+    private fun screenshotSync(): ByteArray = withStream("shell:screencap -p | base64") { stream ->
         val b64 = stream.openInputStream().bufferedReader().readText().replace(Regex("\\s"), "")
         require(b64.isNotEmpty()) { "screencap returned nothing" }
         val raw = android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
