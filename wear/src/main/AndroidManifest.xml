@@ -38,8 +38,9 @@
             </intent-filter>
             <meta-data
                 android:name="android.support.wearable.complications.SUPPORTED_TYPES"
-                android:value="MONOCHROMATIC_IMAGE,SMALL_IMAGE,LONG_TEXT" />
-            <!-- No SHORT_TEXT: faces prefer it over icons, and round slots should show just the icon. -->
+                android:value="MONOCHROMATIC_IMAGE,LONG_TEXT" />
+            <!-- Only the tinted icon for round slots: SHORT_TEXT shows a label, and SMALL_IMAGE is drawn
+                 in the icon's own white instead of the face's colours. -->
             <!-- Phone reachability can change any time; refresh every 5 minutes as well as on demand. -->
             <meta-data
                 android:name="android.support.wearable.complications.UPDATE_PERIOD_SECONDS"

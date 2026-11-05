@@ -10,9 +10,6 @@ import androidx.wear.watchface.complications.data.LongTextComplicationData
 import androidx.wear.watchface.complications.data.MonochromaticImage
 import androidx.wear.watchface.complications.data.MonochromaticImageComplicationData
 import androidx.wear.watchface.complications.data.PlainComplicationText
-import androidx.wear.watchface.complications.data.SmallImage
-import androidx.wear.watchface.complications.data.SmallImageComplicationData
-import androidx.wear.watchface.complications.data.SmallImageType
 import androidx.wear.watchface.complications.datasource.ComplicationRequest
 import androidx.wear.watchface.complications.datasource.SuspendingComplicationDataSourceService
 
@@ -37,8 +34,6 @@ class AskComplicationService : SuspendingComplicationDataSourceService() {
         return when (type) {
             ComplicationType.LONG_TEXT -> LongTextComplicationData.Builder(text(if (ready) "Phone ready · offline OK" else "Phone out of reach"), label)
                 .setTitle(label).setMonochromaticImage(mono).setTapAction(open(listen = true)).build()
-            ComplicationType.SMALL_IMAGE -> SmallImageComplicationData.Builder(SmallImage.Builder(icon, SmallImageType.ICON).build(), label)
-                .setTapAction(open(listen = false)).build()
             ComplicationType.MONOCHROMATIC_IMAGE -> MonochromaticImageComplicationData.Builder(mono, label)
                 .setTapAction(open(listen = false)).build()
             else -> null
