@@ -111,7 +111,7 @@ fun AppRoot(settings: Settings, pendingRoute: String?, onRouteConsumed: () -> Un
             composable("code") { CodeScreen(settings, onOpenSettings = { nav.navigate("code_settings") }, onOpenActivation = { nav.navigate("activation") }) }
             composable("code_settings") { CodeSettingsScreen(settings, onBack = { nav.popBackStack() }, onOpenActivation = { nav.navigate("activation") }) }
             composable("settings") { SettingsScreen(settings, onBack = { nav.popBackStack() }, onOpenWearables = { nav.navigate("wearables") }) }
-            composable("wearables") { WearablesScreen(settings, onBack = { nav.popBackStack() }) }
+            composable("wearables") { WearablesScreen(settings, onBack = { nav.popBackStack() }, onOpenActivation = { nav.navigate("activation") }) }
             composable("activation") {
                 val adb = ctx.app.adb
                 val step by adb.step.collectAsStateWithLifecycle()

@@ -42,11 +42,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.wear.compose.foundation.rotary.RotaryScrollableDefaults
@@ -56,6 +55,9 @@ import androidx.wear.compose.material3.Button
 import androidx.wear.compose.material3.ButtonDefaults
 import androidx.wear.compose.material3.CircularProgressIndicator
 import androidx.wear.compose.material3.ColorScheme
+import androidx.wear.compose.material3.EdgeButton
+import androidx.wear.compose.material3.EdgeButtonSize
+import androidx.wear.compose.material3.dynamicColorScheme
 import androidx.wear.compose.material3.FilledIconButton
 import androidx.wear.compose.material3.FilledTonalIconButton
 import androidx.wear.compose.material3.Icon
@@ -87,7 +89,7 @@ class WatchActivity : ComponentActivity() {
     }
 }
 
-// The phone app's teal scheme (app/…/ui/theme/Theme.kt, dark) on a true-black watch background.
+// Fallback when the watch has no dynamic colour: the phone app's teal scheme (app/…/ui/theme/Theme.kt, dark).
 private val Teal = ColorScheme(
     primary = Color(0xFF82D5C8), onPrimary = Color(0xFF003731),
     primaryContainer = Color(0xFF005048), onPrimaryContainer = Color(0xFF9EF2E4),
@@ -100,8 +102,12 @@ private val Teal = ColorScheme(
     background = Color.Black, onBackground = Color(0xFFDDE4E1),
 )
 
+/** Material 3 for Wear OS, coloured from the watch's own theme (Wear OS 6+) like the phone app's dynamic colour. */
 @Composable
-private fun ChattifierWatchTheme(content: @Composable () -> Unit) = MaterialTheme(colorScheme = Teal, content = content)
+private fun ChattifierWatchTheme(content: @Composable () -> Unit) {
+    val context = LocalContext.current
+    MaterialTheme(colorScheme = remember { dynamicColorScheme(context) } ?: Teal, content = content)
+}
 
 /** The phone app's "cookie" shape: a circle with 12 soft scallops. */
 private val Cookie = GenericShape { size, _ ->
@@ -161,42 +167,47 @@ private fun WatchApp(listenNow: Boolean, vm: WatchViewModel = viewModel()) {
 @Composable
 private fun HomeScreen(ui: WatchUi, onSpeak: () -> Unit, onType: () -> Unit, onRetry: () -> Unit) {
     ScreenScaffold {
-        Column(
-            Modifier.fillMaxSize().padding(top = 34.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            val status = when {
-                ui.phoneModel == null -> "Finding phone…"
-                !ui.phoneReachable -> "Phone out of reach"
-                !ui.phoneEnabled -> "Turned off on phone"
-                ui.phoneModel.isBlank() -> "Phone · no model yet"
-                else -> "Phone · ${ui.phoneModel}"
-            }
-            val ok = ui.phoneReachable && ui.phoneEnabled
-            Row(
-                Modifier.clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.surfaceContainer)
-                    .clickable(onClick = onRetry).padding(horizontal = 10.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+        Box(Modifier.fillMaxSize()) {
+            Column(
+                Modifier.fillMaxSize().padding(top = 34.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Box(Modifier.size(6.dp).clip(CircleShape).background(if (ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline))
-                Text(status, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                val status = when {
+                    ui.phoneModel == null -> "Finding phone…"
+                    !ui.phoneReachable -> "Phone out of reach"
+                    !ui.phoneEnabled -> "Turned off on phone"
+                    ui.phoneModel.isBlank() -> "Phone · no model yet"
+                    else -> "Phone · ${ui.phoneModel}"
+                }
+                val ok = ui.phoneReachable && ui.phoneEnabled
+                Row(
+                    Modifier.clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.surfaceContainer)
+                        .clickable(onClick = onRetry).padding(horizontal = 10.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Box(Modifier.size(6.dp).clip(CircleShape).background(if (ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline))
+                    Text(status, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                }
+                Box(
+                    Modifier.size(84.dp).clip(Cookie).background(MaterialTheme.colorScheme.primary)
+                        .clickable(role = Role.Button, onClickLabel = "Speak", onClick = onSpeak),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Rounded.Mic, "Speak to Chattifier", Modifier.size(34.dp), tint = MaterialTheme.colorScheme.onPrimary)
+                }
+                Text("Tap to speak", style = MaterialTheme.typography.titleMedium)
             }
-            Box(
-                Modifier.size(84.dp).clip(Cookie).background(MaterialTheme.colorScheme.primary)
-                    .clickable(role = Role.Button, onClickLabel = "Speak", onClick = onSpeak),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Icons.Rounded.Mic, "Speak to Chattifier", Modifier.size(34.dp), tint = MaterialTheme.colorScheme.onPrimary)
-            }
-            Text("Tap to speak", fontWeight = FontWeight.SemiBold)
-            Button(
+            EdgeButton(
                 onClick = onType,
+                modifier = Modifier.align(Alignment.BottomCenter),
+                buttonSize = EdgeButtonSize.Medium,
                 colors = ButtonDefaults.filledTonalButtonColors(),
-                icon = { Icon(Icons.Rounded.Keyboard, null, tint = MaterialTheme.colorScheme.primary) },
-                label = { Text("Type") },
-            )
+            ) {
+                Icon(Icons.Rounded.Keyboard, null, Modifier.size(20.dp))
+                Text("Type", Modifier.padding(start = 6.dp))
+            }
         }
     }
 }
@@ -212,10 +223,10 @@ private fun ThinkingScreen(ui: WatchUi) {
             Box(Modifier.size(64.dp).clip(Cookie).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(Modifier.size(40.dp))
             }
-            Text("“${ui.question}”", textAlign = TextAlign.Center, maxLines = 3, fontSize = 14.sp)
+            Text("“${ui.question}”", style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center, maxLines = 3)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Icon(Icons.Rounded.Smartphone, null, Modifier.size(12.dp), tint = MaterialTheme.colorScheme.outline)
-                Text("Thinking on your phone", fontSize = 11.sp, color = MaterialTheme.colorScheme.outline)
+                Icon(Icons.Rounded.Smartphone, null, Modifier.size(12.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Thinking on your phone", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -240,20 +251,20 @@ private fun ReplyScreen(ui: WatchUi, onStop: () -> Unit, onFollowUp: () -> Unit,
                 append(" on phone")
                 ui.seconds?.let { append(" · %.1f s".format(it)) }
             }
-            Text(meta, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+            Text(meta, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
             Text(
-                ui.question, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                ui.question, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).background(MaterialTheme.colorScheme.surfaceContainerHigh)
                     .padding(horizontal = 10.dp, vertical = 6.dp),
             )
             Text(
-                ui.reply.ifBlank { "…" }, fontSize = 15.sp, lineHeight = 20.sp,
+                ui.reply.ifBlank { "…" }, style = MaterialTheme.typography.bodyLarge,
                 color = if (ui.error) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onPrimaryContainer,
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
+                modifier = Modifier.fillMaxWidth().clip(MaterialTheme.shapes.large)
                     .background(if (ui.error) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.primaryContainer)
                     .padding(12.dp),
             )
-            if (ui.speaking) Text("Speaking", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+            if (ui.speaking) Text("Speaking", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (ui.speaking) {
                     FilledTonalIconButton(onClick = onStop) { Icon(Icons.Rounded.Stop, "Stop speaking") }
@@ -275,16 +286,16 @@ private fun OfflineScreen(onRetry: () -> Unit, onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Box(
-                Modifier.size(48.dp).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.tertiaryContainer),
+                Modifier.size(48.dp).clip(MaterialTheme.shapes.medium).background(MaterialTheme.colorScheme.tertiaryContainer),
                 contentAlignment = Alignment.Center,
             ) { Icon(Icons.Rounded.PhonelinkErase, null, tint = MaterialTheme.colorScheme.onTertiaryContainer) }
-            Text("Can't reach your phone", fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
+            Text("Can't reach your phone", style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
             Text(
                 "The AI runs on your phone. Keep it within Bluetooth range. No mobile data or Wi‑Fi needed.",
-                fontSize = 12.sp, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Button(onClick = onRetry, icon = { Icon(Icons.Rounded.Refresh, null) }, label = { Text("Try again") })
-            Text("Your question will send when it reconnects", fontSize = 11.sp, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.outline)
+            Text("Your question will send when it reconnects", style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
             FilledTonalIconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to home") }
         }
     }

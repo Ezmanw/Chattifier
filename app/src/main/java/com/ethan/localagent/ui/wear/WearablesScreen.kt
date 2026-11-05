@@ -1,5 +1,10 @@
 package com.ethan.localagent.ui.wear
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.PowerManager
+import android.provider.Settings as SystemSettings
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -13,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Watch
 import androidx.compose.material3.Icon
@@ -51,8 +57,16 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
+/** Opens the system dialog; turning it back off is only possible from app battery settings. */
+private fun requestUnrestricted(ctx: Context) {
+    val pm = ctx.getSystemService(PowerManager::class.java)
+    val intent = if (pm.isIgnoringBatteryOptimizations(ctx.packageName)) Intent(SystemSettings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+    else Intent(SystemSettings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${ctx.packageName}"))
+    ctx.startActivity(intent)
+}
+
 @Composable
-fun WearablesScreen(settings: Settings, onBack: () -> Unit) {
+fun WearablesScreen(settings: Settings, onBack: () -> Unit, onOpenActivation: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     fun update(f: (Settings) -> Settings) = scope.launch { ctx.app.prefs.update(f) }
@@ -62,9 +76,12 @@ fun WearablesScreen(settings: Settings, onBack: () -> Unit) {
 
     // null = still looking, empty = no watch paired or Play services missing.
     var watches by remember { mutableStateOf<List<Node>?>(null) }
+    val power = remember { ctx.getSystemService(PowerManager::class.java) }
+    var unrestricted by remember { mutableStateOf(power.isIgnoringBatteryOptimizations(ctx.packageName)) }
     LaunchedEffect(Unit) {
         while (true) {
             watches = runCatching { Wearable.getNodeClient(ctx).connectedNodes.await() }.getOrDefault(emptyList())
+            unrestricted = power.isIgnoringBatteryOptimizations(ctx.packageName)
             delay(5_000)
         }
     }
@@ -152,6 +169,31 @@ fun WearablesScreen(settings: Settings, onBack: () -> Unit) {
                         trailingContent = { Switch(settings.wearShort, { v -> update { it.copy(wearShort = v) } }) },
                         colors = clear,
                         modifier = Modifier.clickable { update { it.copy(wearShort = !it.wearShort) } },
+                    )
+                }
+            }
+
+            // If Android kills the app, Play services can still wake it for a watch message, unless
+            // battery limits or the phone maker's task killer block that. Lift them here.
+            Text("Background", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 4.dp, top = 4.dp))
+            Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(24.dp)) {
+                Column {
+                    val clear = ListItemDefaults.colors(containerColor = Color.Transparent)
+                    ListItem(
+                        headlineContent = { Text("Unrestricted battery") },
+                        supportingContent = {
+                            Text(if (unrestricted) "On. Android won't stop Chattifier to save battery" else "Off. Android may stop Chattifier and the watch can't reach it")
+                        },
+                        trailingContent = { Switch(unrestricted, { requestUnrestricted(ctx) }) },
+                        colors = clear,
+                        modifier = Modifier.clickable { requestUnrestricted(ctx) },
+                    )
+                    ListItem(
+                        headlineContent = { Text("Remove all background limits") },
+                        supportingContent = { Text("Stops the phone from killing background apps, using wireless debugging. Redo after reinstalling") },
+                        trailingContent = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null) },
+                        colors = clear,
+                        modifier = Modifier.clickable(onClick = onOpenActivation),
                     )
                 }
             }
