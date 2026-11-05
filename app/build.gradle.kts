@@ -101,5 +101,8 @@ dependencies {
     implementation(libs.conscrypt)
     implementation(libs.bouncycastle.pkix)
 
+    implementation(libs.play.services.wearable)
+    implementation(libs.kotlinx.coroutines.play.services)
+
     testImplementation(libs.junit)
 }

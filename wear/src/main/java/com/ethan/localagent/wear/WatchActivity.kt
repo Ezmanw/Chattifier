@@ -1,0 +1,293 @@
+package com.ethan.localagent.wear
+
+import android.app.RemoteInput
+import android.content.Intent
+import android.os.Bundle
+import android.speech.RecognizerIntent
+import android.view.inputmethod.EditorInfo
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.GenericShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Keyboard
+import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.PhonelinkErase
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Smartphone
+import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.wear.compose.foundation.rotary.RotaryScrollableDefaults
+import androidx.wear.compose.foundation.rotary.rotaryScrollable
+import androidx.wear.compose.material3.AppScaffold
+import androidx.wear.compose.material3.Button
+import androidx.wear.compose.material3.ButtonDefaults
+import androidx.wear.compose.material3.CircularProgressIndicator
+import androidx.wear.compose.material3.ColorScheme
+import androidx.wear.compose.material3.FilledIconButton
+import androidx.wear.compose.material3.FilledTonalIconButton
+import androidx.wear.compose.material3.Icon
+import androidx.wear.compose.material3.MaterialTheme
+import androidx.wear.compose.material3.ScreenScaffold
+import androidx.wear.compose.material3.Text
+import androidx.wear.compose.material3.TimeText
+import androidx.wear.input.RemoteInputIntentHelper
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
+
+class WatchActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        // The long-text complication opens straight into listening.
+        val listenNow = intent?.getBooleanExtra(EXTRA_LISTEN, false) == true
+        setContent { ChattifierWatchTheme { WatchApp(listenNow) } }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra(EXTRA_LISTEN, false)) recreate()
+    }
+
+    companion object {
+        const val EXTRA_LISTEN = "listen"
+    }
+}
+
+// The phone app's teal scheme (app/…/ui/theme/Theme.kt, dark) on a true-black watch background.
+private val Teal = ColorScheme(
+    primary = Color(0xFF82D5C8), onPrimary = Color(0xFF003731),
+    primaryContainer = Color(0xFF005048), onPrimaryContainer = Color(0xFF9EF2E4),
+    secondary = Color(0xFFB1CCC6), onSecondary = Color(0xFF1C3531),
+    tertiary = Color(0xFFADCAE6), onTertiary = Color(0xFF153349),
+    tertiaryContainer = Color(0xFF2D4961), onTertiaryContainer = Color(0xFFCCE5FF),
+    surfaceContainerLow = Color(0xFF161D1B), surfaceContainer = Color(0xFF1A211F), surfaceContainerHigh = Color(0xFF252B2A),
+    onSurface = Color(0xFFDDE4E1), onSurfaceVariant = Color(0xFFBEC9C5),
+    outline = Color(0xFF899390), outlineVariant = Color(0xFF3F4946),
+    background = Color.Black, onBackground = Color(0xFFDDE4E1),
+)
+
+@Composable
+private fun ChattifierWatchTheme(content: @Composable () -> Unit) = MaterialTheme(colorScheme = Teal, content = content)
+
+/** The phone app's "cookie" shape: a circle with 12 soft scallops. */
+private val Cookie = GenericShape { size, _ ->
+    val cx = size.width / 2; val cy = size.height / 2
+    val r = minOf(cx, cy)
+    val steps = 240
+    for (i in 0..steps) {
+        val a = 2 * PI * i / steps
+        val rr = r * (0.92f + 0.08f * cos(12 * a).toFloat())
+        val x = cx + rr * cos(a).toFloat(); val y = cy + rr * sin(a).toFloat()
+        if (i == 0) moveTo(x, y) else lineTo(x, y)
+    }
+    close()
+}
+
+@Composable
+private fun WatchApp(listenNow: Boolean, vm: WatchViewModel = viewModel()) {
+    val ui by vm.ui.collectAsStateWithLifecycle()
+
+    val speech = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+        val text = res.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+        if (text != null) vm.ask(text, byVoice = true, followUp = ui.screen == WatchScreen.Reply)
+    }
+    val keyboard = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+        val text = res.data?.let { RemoteInput.getResultsFromIntent(it) }?.getCharSequence(INPUT_KEY)?.toString()
+        if (text != null) vm.ask(text, byVoice = false, followUp = ui.screen == WatchScreen.Reply)
+    }
+    fun listen() {
+        speech.launch(
+            Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+                .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                .putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+                .putExtra(RecognizerIntent.EXTRA_PROMPT, "Ask Chattifier"),
+        )
+    }
+    fun type() {
+        val intent = RemoteInputIntentHelper.createActionRemoteInputIntent()
+        RemoteInputIntentHelper.putRemoteInputsExtra(
+            intent,
+            listOf(RemoteInput.Builder(INPUT_KEY).setLabel("Ask Chattifier").build()),
+        )
+        intent.putExtra("android.support.wearable.input.extra.INPUT_ACTION_TYPE", EditorInfo.IME_ACTION_SEND)
+        keyboard.launch(intent)
+    }
+    LaunchedEffect(listenNow) { if (listenNow) listen() }
+
+    AppScaffold(timeText = { TimeText() }) {
+        when (ui.screen) {
+            WatchScreen.Home -> HomeScreen(ui, onSpeak = ::listen, onType = ::type, onRetry = { vm.refresh() })
+            WatchScreen.Thinking -> ThinkingScreen(ui)
+            WatchScreen.Reply -> ReplyScreen(ui, onStop = vm::stopSpeaking, onFollowUp = ::listen, onBack = vm::home)
+            WatchScreen.Offline -> OfflineScreen(onRetry = vm::retryNow, onBack = vm::home)
+        }
+    }
+}
+
+@Composable
+private fun HomeScreen(ui: WatchUi, onSpeak: () -> Unit, onType: () -> Unit, onRetry: () -> Unit) {
+    ScreenScaffold {
+        Column(
+            Modifier.fillMaxSize().padding(top = 34.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            val status = when {
+                ui.phoneModel == null -> "Finding phone…"
+                !ui.phoneReachable -> "Phone out of reach"
+                !ui.phoneEnabled -> "Turned off on phone"
+                ui.phoneModel.isBlank() -> "Phone · no model yet"
+                else -> "Phone · ${ui.phoneModel}"
+            }
+            val ok = ui.phoneReachable && ui.phoneEnabled
+            Row(
+                Modifier.clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.surfaceContainer)
+                    .clickable(onClick = onRetry).padding(horizontal = 10.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Box(Modifier.size(6.dp).clip(CircleShape).background(if (ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline))
+                Text(status, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            }
+            Box(
+                Modifier.size(84.dp).clip(Cookie).background(MaterialTheme.colorScheme.primary)
+                    .clickable(role = Role.Button, onClickLabel = "Speak", onClick = onSpeak),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Rounded.Mic, "Speak to Chattifier", Modifier.size(34.dp), tint = MaterialTheme.colorScheme.onPrimary)
+            }
+            Text("Tap to speak", fontWeight = FontWeight.SemiBold)
+            Button(
+                onClick = onType,
+                colors = ButtonDefaults.filledTonalButtonColors(),
+                icon = { Icon(Icons.Rounded.Keyboard, null, tint = MaterialTheme.colorScheme.primary) },
+                label = { Text("Type") },
+            )
+        }
+    }
+}
+
+@Composable
+private fun ThinkingScreen(ui: WatchUi) {
+    ScreenScaffold {
+        Column(
+            Modifier.fillMaxSize().padding(horizontal = 28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterVertically),
+        ) {
+            Box(Modifier.size(64.dp).clip(Cookie).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(Modifier.size(40.dp))
+            }
+            Text("“${ui.question}”", textAlign = TextAlign.Center, maxLines = 3, fontSize = 14.sp)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Icon(Icons.Rounded.Smartphone, null, Modifier.size(12.dp), tint = MaterialTheme.colorScheme.outline)
+                Text("Thinking on your phone", fontSize = 11.sp, color = MaterialTheme.colorScheme.outline)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReplyScreen(ui: WatchUi, onStop: () -> Unit, onFollowUp: () -> Unit, onBack: () -> Unit) {
+    val scroll = rememberScrollState()
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focus.requestFocus() }
+    ScreenScaffold(scrollState = scroll) {
+        Column(
+            Modifier.fillMaxSize()
+                .rotaryScrollable(RotaryScrollableDefaults.behavior(scrollableState = scroll), focusRequester = focus)
+                .verticalScroll(scroll)
+                .padding(start = 22.dp, end = 22.dp, top = 36.dp, bottom = 40.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            val meta = buildString {
+                append(ui.phoneModel?.takeIf { it.isNotBlank() } ?: "Phone")
+                append(" on phone")
+                ui.seconds?.let { append(" · %.1f s".format(it)) }
+            }
+            Text(meta, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+            Text(
+                ui.question, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+            )
+            Text(
+                ui.reply.ifBlank { "…" }, fontSize = 15.sp, lineHeight = 20.sp,
+                color = if (ui.error) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
+                    .background(if (ui.error) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.primaryContainer)
+                    .padding(12.dp),
+            )
+            if (ui.speaking) Text("Speaking", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (ui.speaking) {
+                    FilledTonalIconButton(onClick = onStop) { Icon(Icons.Rounded.Stop, "Stop speaking") }
+                }
+                FilledIconButton(onClick = onFollowUp) { Icon(Icons.Rounded.Mic, "Ask a follow-up") }
+                FilledTonalIconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to home") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OfflineScreen(onRetry: () -> Unit, onBack: () -> Unit) {
+    val scroll = rememberScrollState()
+    ScreenScaffold(scrollState = scroll) {
+        Column(
+            Modifier.fillMaxSize().verticalScroll(scroll).padding(horizontal = 24.dp, vertical = 30.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Box(
+                Modifier.size(48.dp).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.tertiaryContainer),
+                contentAlignment = Alignment.Center,
+            ) { Icon(Icons.Rounded.PhonelinkErase, null, tint = MaterialTheme.colorScheme.onTertiaryContainer) }
+            Text("Can't reach your phone", fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
+            Text(
+                "The AI runs on your phone. Keep it within Bluetooth range. No mobile data or Wi‑Fi needed.",
+                fontSize = 12.sp, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Button(onClick = onRetry, icon = { Icon(Icons.Rounded.Refresh, null) }, label = { Text("Try again") })
+            Text("Your question will send when it reconnects", fontSize = 11.sp, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.outline)
+            FilledTonalIconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to home") }
+        }
+    }
+}
+
+private const val INPUT_KEY = "question"

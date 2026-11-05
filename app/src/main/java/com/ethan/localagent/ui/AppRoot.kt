@@ -13,6 +13,8 @@ import androidx.compose.material.icons.rounded.Chat
 import androidx.compose.material.icons.rounded.Inventory2
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Terminal
+import androidx.compose.material.icons.rounded.Watch
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Chat
 import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.Terminal
@@ -55,6 +57,7 @@ import com.ethan.localagent.ui.models.ModelsScreen
 import com.ethan.localagent.ui.onboarding.ActivationScreen
 import com.ethan.localagent.ui.onboarding.WelcomeScreen
 import com.ethan.localagent.ui.voice.VoiceScreen
+import com.ethan.localagent.ui.wear.WearablesScreen
 import kotlinx.coroutines.launch
 
 private data class Tab(val route: String, val label: String, val icon: ImageVector, val selectedIcon: ImageVector)
@@ -107,7 +110,8 @@ fun AppRoot(settings: Settings, pendingRoute: String?, onRouteConsumed: () -> Un
             composable("models") { ModelsScreen() }
             composable("code") { CodeScreen(settings, onOpenSettings = { nav.navigate("code_settings") }, onOpenActivation = { nav.navigate("activation") }) }
             composable("code_settings") { CodeSettingsScreen(settings, onBack = { nav.popBackStack() }, onOpenActivation = { nav.navigate("activation") }) }
-            composable("settings") { SettingsScreen(settings, onBack = { nav.popBackStack() }) }
+            composable("settings") { SettingsScreen(settings, onBack = { nav.popBackStack() }, onOpenWearables = { nav.navigate("wearables") }) }
+            composable("wearables") { WearablesScreen(settings, onBack = { nav.popBackStack() }) }
             composable("activation") {
                 val adb = ctx.app.adb
                 val step by adb.step.collectAsStateWithLifecycle()
@@ -137,7 +141,7 @@ private fun NavHostController.navigateTab(route: String) = navigate(route) {
 }
 
 @Composable
-private fun SettingsScreen(settings: Settings, onBack: () -> Unit) {
+private fun SettingsScreen(settings: Settings, onBack: () -> Unit, onOpenWearables: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     fun update(f: (Settings) -> Settings) = scope.launch { ctx.app.prefs.update(f) }
@@ -156,6 +160,13 @@ private fun SettingsScreen(settings: Settings, onBack: () -> Unit) {
                 headlineContent = { Text("Colours from wallpaper") },
                 trailingContent = { Switch(settings.dynamicColor, { v -> update { it.copy(dynamicColor = v) } }) },
                 modifier = Modifier.clickable { update { it.copy(dynamicColor = !it.dynamicColor) } },
+            )
+            ListItem(
+                headlineContent = { Text("Wearables") },
+                supportingContent = { Text("Ask from your Wear OS watch") },
+                leadingContent = { Icon(Icons.Rounded.Watch, null) },
+                trailingContent = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null) },
+                modifier = Modifier.clickable(onClick = onOpenWearables),
             )
             Text("Chat", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 16.dp, top = 16.dp))
             var prompt by remember { mutableStateOf(settings.systemPrompt) }

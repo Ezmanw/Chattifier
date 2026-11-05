@@ -17,3 +17,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "Chattifier"
 include(":app")
+include(":wear")

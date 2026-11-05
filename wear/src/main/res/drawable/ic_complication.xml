@@ -1,0 +1,8 @@
+<!-- The launcher icon's chat bubble on its own, for complications (tinted by the watch face). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp" android:viewportWidth="40" android:viewportHeight="40">
+    <group android:translateX="-34" android:translateY="-35">
+        <path android:fillColor="#FFFFFFFF" android:fillType="evenOdd"
+            android:pathData="M47,40 L61,40 A10,10 0 0 1 71,50 L71,52 A10,10 0 0 1 61,62 L51,62 L42,70 L44,62 L47,62 A10,10 0 0 1 37,52 L37,50 A10,10 0 0 1 47,40 Z M42.7,51 A2.8,2.8 0 1 0 48.3,51 A2.8,2.8 0 1 0 42.7,51 Z M51.2,51 A2.8,2.8 0 1 0 56.8,51 A2.8,2.8 0 1 0 51.2,51 Z M59.7,51 A2.8,2.8 0 1 0 65.3,51 A2.8,2.8 0 1 0 59.7,51 Z" />
+    </group>
+</vector>

@@ -21,6 +21,10 @@ libadb = "3.1.1"
 conscrypt = "2.5.3"
 bouncycastle = "1.81"
 junit = "4.13.2"
+playServicesWearable = "19.0.0"
+wearCompose = "1.5.0"
+wearInput = "1.2.0"
+complications = "1.2.1"
 
 [libraries]
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
@@ -55,6 +59,14 @@ conscrypt = { group = "org.conscrypt", name = "conscrypt-android", version.ref =
 bouncycastle-pkix = { group = "org.bouncycastle", name = "bcpkix-jdk15to18", version.ref = "bouncycastle" }
 
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+
+# Wear OS: the watch app, and the phone side of the watch <-> phone link.
+play-services-wearable = { group = "com.google.android.gms", name = "play-services-wearable", version.ref = "playServicesWearable" }
+kotlinx-coroutines-play-services = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-play-services", version.ref = "coroutines" }
+wear-compose-material3 = { group = "androidx.wear.compose", name = "compose-material3", version.ref = "wearCompose" }
+wear-compose-foundation = { group = "androidx.wear.compose", name = "compose-foundation", version.ref = "wearCompose" }
+wear-input = { group = "androidx.wear", name = "wear-input", version.ref = "wearInput" }
+wear-complications-data-source = { group = "androidx.wear.watchface", name = "watchface-complications-data-source-ktx", version.ref = "complications" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

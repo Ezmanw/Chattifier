@@ -23,6 +23,9 @@ enum class PermissionMode(val title: String, val subtitle: String) {
 
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
+/** How the phone answers a question asked on the watch. */
+enum class WearReply(val label: String) { TEXT("Text"), VOICE("Voice"), BOTH("Both") }
+
 data class Settings(
     val activeModelId: String? = null,
     val backend: ComputeBackend = ComputeBackend.GPU,
@@ -43,6 +46,9 @@ data class Settings(
     val codeModelId: String? = null,
     val theme: ThemeMode = ThemeMode.SYSTEM,
     val dynamicColor: Boolean = true,
+    val wearEnabled: Boolean = true,
+    val wearReply: WearReply = WearReply.BOTH,
+    val wearShort: Boolean = true,
 ) {
     companion object {
         const val DEFAULT_SYSTEM_PROMPT =
@@ -73,6 +79,9 @@ class Prefs(private val context: Context) {
         val codeModel = stringPreferencesKey("code_model")
         val theme = stringPreferencesKey("theme")
         val dynamicColor = booleanPreferencesKey("dynamic_color")
+        val wearEnabled = booleanPreferencesKey("wear_enabled")
+        val wearReply = stringPreferencesKey("wear_reply")
+        val wearShort = booleanPreferencesKey("wear_short")
     }
 
     val settings: Flow<Settings> = context.dataStore.data.map { it.toSettings() }
@@ -102,6 +111,9 @@ class Prefs(private val context: Context) {
             codeModelId = this[K.codeModel],
             theme = this[K.theme]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: d.theme,
             dynamicColor = this[K.dynamicColor] ?: d.dynamicColor,
+            wearEnabled = this[K.wearEnabled] ?: d.wearEnabled,
+            wearReply = this[K.wearReply]?.let { runCatching { WearReply.valueOf(it) }.getOrNull() } ?: d.wearReply,
+            wearShort = this[K.wearShort] ?: d.wearShort,
         )
     }
 
@@ -130,6 +142,9 @@ class Prefs(private val context: Context) {
             set(K.codeModel, s.codeModelId)
             set(K.theme, s.theme.name)
             set(K.dynamicColor, s.dynamicColor)
+            set(K.wearEnabled, s.wearEnabled)
+            set(K.wearReply, s.wearReply.name)
+            set(K.wearShort, s.wearShort)
         }
     }
 }

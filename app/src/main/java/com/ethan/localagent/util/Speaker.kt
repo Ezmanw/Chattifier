@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
+import com.k2fsa.sherpa.onnx.GeneratedAudio
 import com.k2fsa.sherpa.onnx.OfflineTts
 import com.k2fsa.sherpa.onnx.OfflineTtsConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsKokoroModelConfig
@@ -66,6 +67,8 @@ class Speaker(private val context: Context, private val http: OkHttpClient) {
     // --- Kokoro ---
     private val player = PcmPlayer(24_000)
     @Volatile private var kokoro: OfflineTts? = null
+    /** Kokoro is shared by the speaker thread and watch replies; one generate() at a time. */
+    private val kokoroLock = Any()
     private val queue = LinkedBlockingQueue<String>()
     @Volatile private var generation = 0
     private val kokoroBusy = MutableStateFlow(false)
@@ -142,6 +145,23 @@ class Speaker(private val context: Context, private val http: OkHttpClient) {
         speak(rest, flush = false)
     }
 
+    /**
+     * Renders [text] with Kokoro without playing it, for sending to the watch. Null when the
+     * neural voice pack isn't installed or a system voice is picked; the watch then speaks itself.
+     */
+    fun synthesize(text: String): GeneratedAudio? {
+        if (!useKokoro) return null
+        val clean = text.replace(MARKDOWN, "").replace(Regex("\\s+"), " ").trim()
+        if (clean.isEmpty()) return null
+        return runCatching {
+            synchronized(kokoroLock) {
+                val engine = kokoro ?: loadKokoro() ?: return null
+                val sid = KOKORO_VOICES.indexOfFirst { it.id == voiceId }.let { if (it < 0) 0 else KOKORO_IDS[it] }
+                engine.generate(clean, sid, rate)
+            }
+        }.onFailure { Log.w(TAG, "kokoro for watch failed", it) }.getOrNull()
+    }
+
     fun stop() {
         buffer = StringBuilder()
         stopPlayback()
@@ -162,12 +182,12 @@ class Speaker(private val context: Context, private val http: OkHttpClient) {
             val text = queue.take()
             val gen = generation
             try {
-                val engine = kokoro ?: loadKokoro() ?: continue
+                val engine = synchronized(kokoroLock) { kokoro ?: loadKokoro() } ?: continue
                 val sid = KOKORO_VOICES.indexOfFirst { it.id == voiceId }.let { if (it < 0) 0 else KOKORO_IDS[it] }
                 // generate() (not generateWithCallback) avoids a JNI callback-signature mismatch in
                 // sherpa-onnx that aborts the process. Kokoro sentences are short, so a per-sentence
                 // wait is fine — the worker still streams sentence by sentence from the queue.
-                val audio = engine.generate(text, sid, rate)
+                val audio = synchronized(kokoroLock) { engine.generate(text, sid, rate) }
                 if (gen == generation) player.write(audio.samples)
             } catch (t: Throwable) {
                 Log.w(TAG, "kokoro failed", t)
