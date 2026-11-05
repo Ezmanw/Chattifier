@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.DataInputStream
 
@@ -70,8 +71,10 @@ class PhoneLink(context: Context) {
         nodes.firstOrNull { it.isNearby } ?: nodes.firstOrNull()
     }.getOrNull()
 
-    suspend fun ask(node: Node, id: String, text: String, voice: Boolean, followUp: Boolean) {
-        val json = JSONObject().put("id", id).put("text", text).put("voice", voice).put("followUp", followUp)
+    /** [history]: the earlier turns of this conversation, which the phone replays as context. */
+    suspend fun ask(node: Node, id: String, text: String, voice: Boolean, history: List<Exchange>) {
+        val turns = JSONArray().apply { history.forEach { put(JSONObject().put("q", it.q).put("a", it.a)) } }
+        val json = JSONObject().put("id", id).put("text", text).put("voice", voice).put("history", turns)
         messages.sendMessage(node.id, Paths.ASK, json.toString().toByteArray()).await()
     }
 

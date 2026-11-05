@@ -20,12 +20,18 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // Compose on a watch CPU is noticeably janky without R8 and a non-debuggable build.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
             signingConfig = signingConfigs.getByName("debug")
         }
     }
 
     buildFeatures { compose = true }
+
+    // lintVitalAnalyzeRelease crashes inside lint itself on this AGP/Wear Compose combo; debug lint still runs.
+    lint { checkReleaseBuilds = false }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

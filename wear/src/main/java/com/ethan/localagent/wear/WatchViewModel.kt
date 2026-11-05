@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.UUID
 
-enum class WatchScreen { Home, Thinking, Reply, Offline }
+enum class WatchScreen { Home, Thinking, Reply, Offline, History }
 
 data class WatchUi(
     val screen: WatchScreen = WatchScreen.Home,
@@ -22,26 +22,32 @@ data class WatchUi(
     val phoneModel: String? = null,
     val phoneReachable: Boolean = false,
     val phoneEnabled: Boolean = true,
+    /** Finished turns of the open conversation, oldest first (not including [question]). */
+    val thread: List<Exchange> = emptyList(),
     val question: String = "",
     val reply: String = "",
     val error: Boolean = false,
     val seconds: Float? = null,
     val speaking: Boolean = false,
+    val history: List<Conversation> = emptyList(),
 )
 
 /**
- * The watch side of a question: send it to the phone, show the streamed answer, and speak it
- * (phone-rendered Kokoro audio when it comes, otherwise the watch's own TTS).
+ * The watch side of a conversation: send each question to the phone with the turns before it,
+ * show the streamed answer, speak it (phone-rendered Kokoro audio when it comes, otherwise the
+ * watch's own TTS), and keep finished conversations in [History].
  */
 class WatchViewModel(app: Application) : AndroidViewModel(app) {
     private val link = PhoneLink(app)
-    private val _ui = MutableStateFlow(WatchUi())
+    private val store = History(app)
+    private val _ui = MutableStateFlow(WatchUi(history = store.load()))
     val ui: StateFlow<WatchUi> = _ui.asStateFlow()
 
+    /** The open conversation; null until the first answer of a new one comes back. */
+    private var conversationId: String? = null
     private var currentId: String? = null
     private var askedAt = 0L
     private var askedByVoice = false
-    private var inConversation = false
     private var waiting: Job? = null
     private var retrying: Job? = null
     @Volatile private var track: AudioTrack? = null
@@ -67,12 +73,16 @@ class WatchViewModel(app: Application) : AndroidViewModel(app) {
         _ui.update { it.copy(phoneReachable = s != null, phoneModel = s?.model ?: "", phoneEnabled = s?.enabled ?: true) }
     }
 
-    fun ask(text: String, byVoice: Boolean, followUp: Boolean = false) {
+    /** [followUp]: continue the open conversation; otherwise this starts a new one. */
+    fun ask(text: String, byVoice: Boolean, followUp: Boolean) {
         if (text.isBlank()) return
         stopSpeaking()
+        if (!followUp) { conversationId = null; _ui.update { it.copy(thread = emptyList()) } }
+        else settleCurrentTurn()
         val id = UUID.randomUUID().toString()
         currentId = id
         askedByVoice = byVoice
+        val history = _ui.value.thread
         _ui.update { it.copy(screen = WatchScreen.Thinking, question = text, reply = "", error = false, seconds = null) }
         waiting?.cancel()
         waiting = viewModelScope.launch {
@@ -84,7 +94,7 @@ class WatchViewModel(app: Application) : AndroidViewModel(app) {
             }
             _ui.update { it.copy(phoneReachable = true) }
             askedAt = System.currentTimeMillis()
-            runCatching { link.ask(node, id, text, byVoice, followUp && inConversation) }.onFailure {
+            runCatching { link.ask(node, id, text, byVoice, history) }.onFailure {
                 _ui.update { it.copy(screen = WatchScreen.Offline, phoneReachable = false) }
                 retryWhenBack()
                 return@launch
@@ -93,6 +103,14 @@ class WatchViewModel(app: Application) : AndroidViewModel(app) {
             if (currentId == id && _ui.value.screen == WatchScreen.Thinking) {
                 _ui.update { it.copy(screen = WatchScreen.Reply, reply = "Your phone didn't answer in time.", error = true) }
             }
+        }
+    }
+
+    /** Moves the answered question on screen into the thread before the next one is asked. */
+    private fun settleCurrentTurn() {
+        val u = _ui.value
+        if (u.question.isNotBlank() && u.reply.isNotBlank() && !u.error) {
+            _ui.update { it.copy(thread = it.thread + Exchange(u.question, u.reply), question = "", reply = "") }
         }
     }
 
@@ -109,17 +127,18 @@ class WatchViewModel(app: Application) : AndroidViewModel(app) {
 
     fun retryNow() {
         val q = _ui.value.question
-        if (q.isNotBlank()) ask(q, askedByVoice) else { _ui.update { it.copy(screen = WatchScreen.Home) }; refresh() }
+        if (q.isNotBlank()) ask(q, askedByVoice, followUp = _ui.value.thread.isNotEmpty())
+        else { _ui.update { it.copy(screen = WatchScreen.Home) }; refresh() }
     }
 
     private fun onReply(r: Reply) {
         if (r.id != currentId) return
         if (!r.done) {
-            _ui.update { it.copy(screen = WatchScreen.Reply, reply = r.text) }
+            // Skip identical repeats so the reply page only re-lays-out when the text grew.
+            if (r.text != _ui.value.reply) _ui.update { it.copy(screen = WatchScreen.Reply, reply = r.text) }
             return
         }
         waiting?.cancel()
-        inConversation = !r.error
         _ui.update {
             it.copy(
                 screen = WatchScreen.Reply, reply = r.text, error = r.error,
@@ -127,7 +146,44 @@ class WatchViewModel(app: Application) : AndroidViewModel(app) {
                 phoneModel = r.model.ifBlank { it.phoneModel },
             )
         }
+        if (!r.error) remember(_ui.value.thread + Exchange(_ui.value.question, r.text))
         if (r.speak && !r.phoneAudio && !r.error) speakLocally(r.text)
+    }
+
+    private fun remember(turns: List<Exchange>) {
+        val id = conversationId ?: UUID.randomUUID().toString().also { conversationId = it }
+        val updated = listOf(Conversation(id, System.currentTimeMillis(), turns)) + _ui.value.history.filter { it.id != id }
+        store.save(updated)
+        _ui.update { it.copy(history = updated) }
+    }
+
+    fun newChat() {
+        home()
+        conversationId = null
+        _ui.update { it.copy(thread = emptyList(), question = "", reply = "") }
+    }
+
+    /** Opens a past conversation; the next question continues it. */
+    fun open(c: Conversation) {
+        stopSpeaking()
+        conversationId = c.id
+        val last = c.turns.lastOrNull() ?: return
+        _ui.update {
+            it.copy(screen = WatchScreen.Reply, thread = c.turns.dropLast(1), question = last.q, reply = last.a, error = false, seconds = null)
+        }
+    }
+
+    /** Reopens the most recent conversation. */
+    fun resume() = _ui.value.history.firstOrNull()?.let(::open)
+
+    fun showHistory() {
+        stopSpeaking()
+        _ui.update { it.copy(screen = WatchScreen.History) }
+    }
+
+    fun clearHistory() {
+        store.save(emptyList())
+        _ui.update { it.copy(history = emptyList()) }
     }
 
     private fun speakLocally(text: String) {

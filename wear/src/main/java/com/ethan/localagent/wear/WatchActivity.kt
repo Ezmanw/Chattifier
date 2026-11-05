@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.speech.RecognizerIntent
 import android.view.inputmethod.EditorInfo
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -26,6 +27,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.Forum
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Keyboard
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.PhonelinkErase
@@ -50,6 +55,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.wear.compose.foundation.rotary.RotaryScrollableDefaults
 import androidx.wear.compose.foundation.rotary.rotaryScrollable
+import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
+import androidx.wear.compose.foundation.lazy.items
+import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
 import androidx.wear.compose.material3.AppScaffold
 import androidx.wear.compose.material3.Button
 import androidx.wear.compose.material3.ButtonDefaults
@@ -154,18 +162,25 @@ private fun WatchApp(listenNow: Boolean, vm: WatchViewModel = viewModel()) {
     }
     LaunchedEffect(listenNow) { if (listenNow) listen() }
 
+    // Swipe-back goes home from anywhere else; from home it leaves the app as usual.
+    BackHandler(enabled = ui.screen != WatchScreen.Home) { vm.home() }
+
     AppScaffold(timeText = { TimeText() }) {
         when (ui.screen) {
-            WatchScreen.Home -> HomeScreen(ui, onSpeak = ::listen, onType = ::type, onRetry = { vm.refresh() })
+            WatchScreen.Home -> HomeScreen(
+                ui, onSpeak = ::listen, onType = ::type, onRetry = { vm.refresh() },
+                onHistory = vm::showHistory, onContinue = { vm.resume() },
+            )
             WatchScreen.Thinking -> ThinkingScreen(ui)
-            WatchScreen.Reply -> ReplyScreen(ui, onStop = vm::stopSpeaking, onFollowUp = ::listen, onBack = vm::home)
+            WatchScreen.Reply -> ReplyScreen(ui, onStop = vm::stopSpeaking, onSpeak = ::listen, onType = ::type, onNewChat = vm::newChat)
             WatchScreen.Offline -> OfflineScreen(onRetry = vm::retryNow, onBack = vm::home)
+            WatchScreen.History -> HistoryScreen(ui.history, onOpen = vm::open, onClear = vm::clearHistory)
         }
     }
 }
 
 @Composable
-private fun HomeScreen(ui: WatchUi, onSpeak: () -> Unit, onType: () -> Unit, onRetry: () -> Unit) {
+private fun HomeScreen(ui: WatchUi, onSpeak: () -> Unit, onType: () -> Unit, onRetry: () -> Unit, onHistory: () -> Unit, onContinue: () -> Unit) {
     ScreenScaffold {
         Box(Modifier.fillMaxSize()) {
             Column(
@@ -190,12 +205,18 @@ private fun HomeScreen(ui: WatchUi, onSpeak: () -> Unit, onType: () -> Unit, onR
                     Box(Modifier.size(6.dp).clip(CircleShape).background(if (ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline))
                     Text(status, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                 }
-                Box(
-                    Modifier.size(84.dp).clip(Cookie).background(MaterialTheme.colorScheme.primary)
-                        .clickable(role = Role.Button, onClickLabel = "Speak", onClick = onSpeak),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(Icons.Rounded.Mic, "Speak to Chattifier", Modifier.size(34.dp), tint = MaterialTheme.colorScheme.onPrimary)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    FilledTonalIconButton(onClick = onHistory) { Icon(Icons.Rounded.History, "History") }
+                    Box(
+                        Modifier.size(84.dp).clip(Cookie).background(MaterialTheme.colorScheme.primary)
+                            .clickable(role = Role.Button, onClickLabel = "Speak", onClick = onSpeak),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Icons.Rounded.Mic, "Speak to Chattifier", Modifier.size(34.dp), tint = MaterialTheme.colorScheme.onPrimary)
+                    }
+                    FilledTonalIconButton(onClick = onContinue, enabled = ui.history.isNotEmpty()) {
+                        Icon(Icons.Rounded.Forum, "Continue last chat")
+                    }
                 }
                 Text("Tap to speak", style = MaterialTheme.typography.titleMedium)
             }
@@ -233,10 +254,12 @@ private fun ThinkingScreen(ui: WatchUi) {
 }
 
 @Composable
-private fun ReplyScreen(ui: WatchUi, onStop: () -> Unit, onFollowUp: () -> Unit, onBack: () -> Unit) {
+private fun ReplyScreen(ui: WatchUi, onStop: () -> Unit, onSpeak: () -> Unit, onType: () -> Unit, onNewChat: () -> Unit) {
     val scroll = rememberScrollState()
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { focus.requestFocus() }
+    // Opening a long thread starts at the newest answer.
+    LaunchedEffect(ui.thread.size) { if (ui.thread.isNotEmpty()) scroll.scrollTo(scroll.maxValue) }
     ScreenScaffold(scrollState = scroll) {
         Column(
             Modifier.fillMaxSize()
@@ -252,27 +275,82 @@ private fun ReplyScreen(ui: WatchUi, onStop: () -> Unit, onFollowUp: () -> Unit,
                 ui.seconds?.let { append(" · %.1f s".format(it)) }
             }
             Text(meta, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
-            Text(
-                ui.question, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
-            )
-            Text(
-                ui.reply.ifBlank { "…" }, style = MaterialTheme.typography.bodyLarge,
-                color = if (ui.error) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onPrimaryContainer,
-                modifier = Modifier.fillMaxWidth().clip(MaterialTheme.shapes.large)
-                    .background(if (ui.error) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.primaryContainer)
-                    .padding(12.dp),
-            )
+            ui.thread.forEach { turn ->
+                Question(turn.q)
+                Answer(turn.a, error = false)
+            }
+            Question(ui.question)
+            Answer(ui.reply.ifBlank { "…" }, ui.error)
             if (ui.speaking) Text("Speaking", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (ui.speaking) {
-                    FilledTonalIconButton(onClick = onStop) { Icon(Icons.Rounded.Stop, "Stop speaking") }
-                }
-                FilledIconButton(onClick = onFollowUp) { Icon(Icons.Rounded.Mic, "Ask a follow-up") }
-                FilledTonalIconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to home") }
+                if (ui.speaking) FilledTonalIconButton(onClick = onStop) { Icon(Icons.Rounded.Stop, "Stop speaking") }
+                else FilledTonalIconButton(onClick = onNewChat) { Icon(Icons.Rounded.Add, "New chat") }
+                FilledIconButton(onClick = onSpeak) { Icon(Icons.Rounded.Mic, "Reply by voice") }
+                FilledTonalIconButton(onClick = onType) { Icon(Icons.Rounded.Keyboard, "Reply by typing") }
             }
         }
+    }
+}
+
+@Composable
+private fun Question(text: String) = Text(
+    text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+    modifier = Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).background(MaterialTheme.colorScheme.surfaceContainerHigh)
+        .padding(horizontal = 10.dp, vertical = 6.dp),
+)
+
+@Composable
+private fun Answer(text: String, error: Boolean) = Text(
+    text, style = MaterialTheme.typography.bodyLarge,
+    color = if (error) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onPrimaryContainer,
+    modifier = Modifier.fillMaxWidth().clip(MaterialTheme.shapes.large)
+        .background(if (error) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.primaryContainer)
+        .padding(12.dp),
+)
+
+@Composable
+private fun HistoryScreen(history: List<Conversation>, onOpen: (Conversation) -> Unit, onClear: () -> Unit) {
+    val list = rememberScalingLazyListState()
+    ScreenScaffold(scrollState = list) {
+        ScalingLazyColumn(Modifier.fillMaxSize(), state = list, horizontalAlignment = Alignment.CenterHorizontally) {
+            item { Text("History", style = MaterialTheme.typography.titleMedium) }
+            if (history.isEmpty()) item {
+                Text(
+                    "Nothing yet. Your chats show up here.", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center,
+                )
+            }
+            items(history, key = { it.id }) { c ->
+                Button(
+                    onClick = { onOpen(c) },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.filledTonalButtonColors(),
+                    secondaryLabel = { Text(ago(c.updatedAt) + " · " + plural(c.turns.size), maxLines = 1) },
+                    label = { Text(c.title, maxLines = 2) },
+                )
+            }
+            if (history.isNotEmpty()) item {
+                Button(
+                    onClick = onClear,
+                    colors = ButtonDefaults.outlinedButtonColors(),
+                    border = ButtonDefaults.outlinedButtonBorder(enabled = true),
+                    icon = { Icon(Icons.Rounded.DeleteSweep, null) },
+                    label = { Text("Clear history") },
+                )
+            }
+        }
+    }
+}
+
+private fun plural(n: Int) = if (n == 1) "1 question" else "$n questions"
+
+private fun ago(at: Long): String {
+    val min = (System.currentTimeMillis() - at) / 60_000
+    return when {
+        min < 1 -> "Just now"
+        min < 60 -> "$min min ago"
+        min < 24 * 60 -> "${min / 60} h ago"
+        else -> "${min / (24 * 60)} d ago"
     }
 }
 

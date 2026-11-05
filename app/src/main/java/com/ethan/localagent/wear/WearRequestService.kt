@@ -72,12 +72,18 @@ class WearRequestService : WearableListenerService() {
             return
         }
         if (text.isEmpty()) return
-        if (!req.optBoolean("followUp")) WatchConversation.clear()
+        // The watch keeps the conversation (and its history list), so it sends the earlier turns.
+        val history = req.optJSONArray("history")?.let { arr ->
+            (0 until arr.length()).flatMap { i ->
+                val t = arr.getJSONObject(i)
+                listOf(ChatMessage(role = Role.USER, text = t.optString("q")), ChatMessage(role = Role.ASSISTANT, text = t.optString("a")))
+            }
+        }.orEmpty().takeLast(MAX_HISTORY_MESSAGES)
 
         val out = StringBuilder()
         try {
             val prompt = if (s.wearShort) "$WATCH_PROMPT $SHORT" else WATCH_PROMPT
-            val session = c.engine.sessionFor(WatchConversation, prompt, WatchConversation.history, forceNew = true)
+            val session = c.engine.sessionFor(WatchSession, prompt, history, forceNew = true)
             var lastSent = 0L
             session.send(Turn.User(text)).collect { chunk ->
                 if (chunk.text.isEmpty()) return@collect
@@ -95,7 +101,6 @@ class WearRequestService : WearableListenerService() {
         }
 
         val answer = out.toString().trim()
-        WatchConversation.add(ChatMessage(role = Role.USER, text = text), ChatMessage(role = Role.ASSISTANT, text = answer))
         val modelName = c.engine.current?.name
         val wantVoice = req.optBoolean("voice") && s.wearReply != WearReply.TEXT
         val audio = if (wantVoice) c.speaker.synthesize(answer) else null
@@ -131,7 +136,9 @@ class WearRequestService : WearableListenerService() {
     companion object {
         private const val TAG = "WearRequestService"
         private const val ASK_TIMEOUT_MS = 180_000L
-        private const val STREAM_EVERY_MS = 400L
+        private const val MAX_HISTORY_MESSAGES = 12
+        // Each update re-lays-out the whole reply on the watch; faster than this makes it stutter.
+        private const val STREAM_EVERY_MS = 700L
         private const val WATCH_PROMPT =
             "You are answering a question asked on the user's smartwatch. The reply is read on a small round " +
                 "screen or spoken aloud, so use plain sentences with no markdown, lists or code blocks."
@@ -139,12 +146,5 @@ class WearRequestService : WearableListenerService() {
     }
 }
 
-/** The watch's running conversation, so follow-ups have context. Also the engine session owner. */
-object WatchConversation {
-    private const val MAX_MESSAGES = 12
-    @Volatile var history: List<ChatMessage> = emptyList()
-        private set
-
-    fun add(vararg messages: ChatMessage) { history = (history + messages).takeLast(MAX_MESSAGES) }
-    fun clear() { history = emptyList() }
-}
+/** Owner of the engine session while answering the watch. */
+object WatchSession
