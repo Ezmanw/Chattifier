@@ -145,6 +145,9 @@ class Speaker(private val context: Context, private val http: OkHttpClient) {
         speak(rest, flush = false)
     }
 
+    /** Whether [synthesize] will produce audio (Kokoro installed and picked). */
+    val rendersNeural: Boolean get() = useKokoro
+
     /**
      * Renders [text] with Kokoro without playing it, for sending to the watch. Null when the
      * neural voice pack isn't installed or a system voice is picked; the watch then speaks itself.

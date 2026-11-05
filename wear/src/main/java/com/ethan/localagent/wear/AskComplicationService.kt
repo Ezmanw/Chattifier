@@ -10,7 +10,6 @@ import androidx.wear.watchface.complications.data.LongTextComplicationData
 import androidx.wear.watchface.complications.data.MonochromaticImage
 import androidx.wear.watchface.complications.data.MonochromaticImageComplicationData
 import androidx.wear.watchface.complications.data.PlainComplicationText
-import androidx.wear.watchface.complications.data.ShortTextComplicationData
 import androidx.wear.watchface.complications.data.SmallImage
 import androidx.wear.watchface.complications.data.SmallImageComplicationData
 import androidx.wear.watchface.complications.data.SmallImageType
@@ -18,7 +17,8 @@ import androidx.wear.watchface.complications.datasource.ComplicationRequest
 import androidx.wear.watchface.complications.datasource.SuspendingComplicationDataSourceService
 
 /**
- * "Ask Chattifier" on the watch face. Small slots open the app; the wide one starts listening
+ * "Ask Chattifier" on the watch face. Round slots show just the icon, in the face's colours, and
+ * open the app; the wide one starts listening
  * straight away and says whether the phone is in reach.
  */
 class AskComplicationService : SuspendingComplicationDataSourceService() {
@@ -35,8 +35,6 @@ class AskComplicationService : SuspendingComplicationDataSourceService() {
         val mono = MonochromaticImage.Builder(icon).build()
         val label = text("Ask Chattifier")
         return when (type) {
-            ComplicationType.SHORT_TEXT -> ShortTextComplicationData.Builder(text("Ask"), label)
-                .setMonochromaticImage(mono).setTapAction(open(listen = false)).build()
             ComplicationType.LONG_TEXT -> LongTextComplicationData.Builder(text(if (ready) "Phone ready · offline OK" else "Phone out of reach"), label)
                 .setTitle(label).setMonochromaticImage(mono).setTapAction(open(listen = true)).build()
             ComplicationType.SMALL_IMAGE -> SmallImageComplicationData.Builder(SmallImage.Builder(icon, SmallImageType.ICON).build(), label)

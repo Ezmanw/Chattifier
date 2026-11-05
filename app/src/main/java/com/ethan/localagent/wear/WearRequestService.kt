@@ -103,9 +103,13 @@ class WearRequestService : WearableListenerService() {
         val answer = out.toString().trim()
         val modelName = c.engine.current?.name
         val wantVoice = req.optBoolean("voice") && s.wearReply != WearReply.TEXT
-        val audio = if (wantVoice) c.speaker.synthesize(answer) else null
-        send(node, WearPaths.REPLY, reply(answer, done = true, model = modelName, speak = wantVoice, phoneAudio = audio != null))
-        if (audio != null) sendAudio(node, id, audio.samples, audio.sampleRate)
+        // The final text goes out first; rendering the voice takes seconds and mustn't hold it up.
+        val phoneVoice = wantVoice && c.speaker.rendersNeural
+        send(node, WearPaths.REPLY, reply(answer, done = true, model = modelName, speak = wantVoice, phoneAudio = phoneVoice))
+        if (phoneVoice && !sendAudio(node, id, answer)) {
+            // Kokoro failed after all: a second "done" without phone audio makes the watch speak it.
+            send(node, WearPaths.REPLY, reply(answer, done = true, model = modelName, speak = true, phoneAudio = false))
+        }
     }
 
     private suspend fun send(node: String, path: String, json: JSONObject) {
@@ -113,24 +117,35 @@ class WearRequestService : WearableListenerService() {
             .onFailure { Log.w(TAG, "couldn't reach watch on $path", it) }
     }
 
-    /** Streams 16-bit PCM to the watch: an int sample rate, then little-endian samples. */
-    private suspend fun sendAudio(node: String, id: String, samples: FloatArray, sampleRate: Int) {
+    /**
+     * Renders [text] with Kokoro a sentence at a time and streams it to the watch as 16-bit PCM:
+     * an int sample rate, then little-endian samples. The watch starts playing after the first
+     * sentence instead of waiting for the whole reply. False if nothing could be rendered or sent.
+     */
+    private suspend fun sendAudio(node: String, id: String, text: String): Boolean {
         val channels = Wearable.getChannelClient(this)
-        runCatching {
-            val channel = channels.openChannel(node, WearPaths.AUDIO + id).await()
-            channels.getOutputStream(channel).await().use { raw ->
-                val out = DataOutputStream(raw.buffered(1 shl 15))
-                out.writeInt(sampleRate)
-                val bytes = ByteArray(samples.size * 2)
-                samples.forEachIndexed { i, f ->
-                    val v = (f.coerceIn(-1f, 1f) * Short.MAX_VALUE).toInt()
-                    bytes[i * 2] = (v and 0xff).toByte()
-                    bytes[i * 2 + 1] = (v shr 8 and 0xff).toByte()
+        var out: DataOutputStream? = null
+        return runCatching {
+            try {
+                for (sentence in text.split(SENTENCE_BREAK).filter { it.isNotBlank() }) {
+                    val audio = app.speaker.synthesize(sentence) ?: continue
+                    val stream = out ?: DataOutputStream(
+                        channels.getOutputStream(channels.openChannel(node, WearPaths.AUDIO + id).await()).await().buffered(1 shl 15),
+                    ).also { it.writeInt(audio.sampleRate); out = it }
+                    val bytes = ByteArray(audio.samples.size * 2)
+                    audio.samples.forEachIndexed { i, f ->
+                        val v = (f.coerceIn(-1f, 1f) * Short.MAX_VALUE).toInt()
+                        bytes[i * 2] = (v and 0xff).toByte()
+                        bytes[i * 2 + 1] = (v shr 8 and 0xff).toByte()
+                    }
+                    stream.write(bytes)
+                    stream.flush()
                 }
-                out.write(bytes)
-                out.flush()
+            } finally {
+                out?.close()
             }
-        }.onFailure { Log.w(TAG, "couldn't stream audio to watch", it) }
+            out != null
+        }.onFailure { Log.w(TAG, "couldn't stream audio to watch", it) }.getOrDefault(false)
     }
 
     companion object {
@@ -139,6 +154,7 @@ class WearRequestService : WearableListenerService() {
         private const val MAX_HISTORY_MESSAGES = 12
         // Each update re-lays-out the whole reply on the watch; faster than this makes it stutter.
         private const val STREAM_EVERY_MS = 700L
+        private val SENTENCE_BREAK = Regex("(?<=[.!?])\\s+|\\n+")
         private const val WATCH_PROMPT =
             "You are answering a question asked on the user's smartwatch. The reply is read on a small round " +
                 "screen or spoken aloud, so use plain sentences with no markdown, lists or code blocks."
